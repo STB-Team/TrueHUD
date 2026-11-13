@@ -25,9 +25,40 @@ namespace Scaleform
 
 		bool Matches(const Numbers& a_numbers, const Strings& a_strings = {}) const
 		{
-			if (!_valid || _numbers != a_numbers) {
+			return MatchesExcept<N>(a_numbers, a_strings);
+		}
+
+		// N means all numbers participate; a smaller index is updated separately.
+		template <std::size_t I>
+		bool MatchesExcept(const Numbers& a_numbers, const Strings& a_strings = {}) const
+		{
+			static_assert(I <= N);
+			if (!_valid) {
 				return false;
 			}
+			for (std::size_t i = 0; i < I; ++i) {
+				if (_numbers[i] != a_numbers[i]) {
+					return false;
+				}
+			}
+			for (std::size_t i = I + 1; i < N; ++i) {
+				if (_numbers[i] != a_numbers[i]) {
+					return false;
+				}
+			}
+			return MatchesStrings(a_strings);
+		}
+
+		template <std::size_t I>
+		void StoreNumber(double a_number)
+		{
+			static_assert(I < N);
+			_numbers[I] = a_number;
+		}
+
+	private:
+		bool MatchesStrings(const Strings& a_strings) const
+		{
 			for (std::size_t i = 0; i < S; ++i) {
 				if (_strings[i] != a_strings[i]) {
 					return false;
@@ -35,6 +66,8 @@ namespace Scaleform
 			}
 			return true;
 		}
+
+	public:
 
 		void Store(const Numbers& a_numbers, const Strings& a_strings = {})
 		{

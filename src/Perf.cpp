@@ -176,7 +176,7 @@ namespace Perf
 			auto& w = window;
 			const auto reportStart = Now();
 			const auto sampleCount = static_cast<std::size_t>(std::min<std::uint64_t>(w.frames, SampleCapacity));
-			logger::info("TrueHUDPerf: window={} mode={} tid={} duration_s={:.3f} frames={} samples={} cadence_mean_ms={:.4f} cadence_max_ms={:.4f} nested_elapsed_not_additive=1 schema=2",
+			logger::info("TrueHUDPerf: window={} mode={} tid={} duration_s={:.3f} frames={} samples={} cadence_mean_ms={:.4f} cadence_max_ms={:.4f} nested_elapsed_not_additive=1 schema=3",
 				w.sequence, w.optimized ? "optimized" : "baseline", GetCurrentThreadId(), (a_now - w.start) * 1e-9,
 				w.frames, sampleCount, w.dtSum * 1000.0 / w.frames, w.maxDt * 1000.0);
 			for (std::size_t i = 0; i < PhaseCount; ++i) {
@@ -193,8 +193,8 @@ namespace Perf
 					metric.samples[p99] * 1e-6, metric.maxNs * 1e-6, metric.calls);
 			}
 			const auto& c = w.counters;
-			logger::info("TrueHUDPerf: counts actors={} hidden={} bosses={} custom={} data_sent={} data_skipped={} special_sent={} special_skipped={} penalty_sent={} penalty_skipped={} position_sent={} position_skipped={} position_unavailable={} clear_sent={} clear_skipped={} sort_sent={} invoke_failures={}",
-				c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16]);
+			logger::info("TrueHUDPerf: counts actors={} hidden={} bosses={} custom={} data_sent={} data_skipped={} special_sent={} special_skipped={} penalty_sent={} penalty_skipped={} position_sent={} position_skipped={} position_unavailable={} clear_sent={} clear_skipped={} sort_sent={} invoke_failures={} depth_sent={} depth_failures={}",
+				c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16], c[17], c[18]);
 			for (std::size_t i = 0; i < PacketCount; ++i) {
 				const auto& packet = w.packets[i];
 				const auto& description = Descriptions[i];

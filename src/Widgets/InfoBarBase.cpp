@@ -354,9 +354,26 @@ namespace Scaleform
 			ceil(maxStamina), ceil(stamina), Utils::GetPct(stamina, maxStamina)
 		};
 		const UpdateCache<17, 2>::Strings strings{ targetName, _cachedRegenString };
-		const bool sendData = !Perf::UseOptimizations() || !canCache || !_dataCache.Matches(data, strings);
+		bool sendData = !Perf::UseOptimizations() || !canCache || !_dataCache.MatchesExcept<2>(data, strings);
+		bool depthAccepted = false;
+		if (!sendData && _dataCache.AcceptedNumbers()[2] != data[2]) {
+			// Installed updateData only assigns depth before processing the other fields.
+			// Preserve that assignment without rebuilding its unchanged 19-argument packet.
+			Perf::Scope depthScope(Perf::Phase::Invoke);
+			RE::GFxValue depth;
+			depth.SetNumber(data[2]);
+			Perf::Count(Perf::Counter::DepthSent);
+			depthAccepted = _object.SetMember("depth", depth);
+			if (!depthAccepted) {
+				Perf::Count(Perf::Counter::DepthFailures);
+				sendData = true;
+			}
+		}
 		Perf::TracePacket(_barType == BarType::kBossInfoBar ? Perf::PacketKind::BossData : Perf::PacketKind::ActorData,
 			_widgetID, _dataCache, data, canCache, sendData, strings);
+		if (depthAccepted) {
+			_dataCache.StoreNumber<2>(data[2]);
+		}
 		if (sendData) {
 			RE::GFxValue args[19];
 			for (std::size_t i = 0; i < 4; ++i) {

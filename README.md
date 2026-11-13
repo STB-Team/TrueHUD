@@ -25,7 +25,10 @@ ctest --test-dir build -C Release -R "^TrueHUDUpdateCache$" --output-on-failure
 The supplied STB C++ sources are imported separately from upstream Flash sources.
 Keep the installed STB SWFs: upstream FLA/AS files are not replacements for them.
 
-- Skip identical accepted NPC/boss data, special-resource and player-penalty packets.
+- Skip identical accepted NPC/boss content, special-resource and player-penalty packets.
+- If only NPC/boss depth changes, write the existing movie's `depth` property directly instead of invoking
+  the unchanged 19-argument `updateData`. A rejected property write uses the full update; only accepted writes
+  enter the cache. Resource/name/state changes still send the full packet, with no added frame delay.
 - Cache owned text, never pointers into the periodically refreshed actor data.
 - Invalidate on widget reconfiguration; do not cache calls made before deferred Flash initialization.
 - Skip identical NPC display transforms, without reducing world projection or resource sampling frequency.
@@ -44,9 +47,12 @@ overflow is reported. Actor details retain 32 IDs per window, first/last states 
 transition counts; they are not a complete event trace. `report_ms` exposes most log-output overhead.
 The first window includes initialization and is not a steady-state performance sample.
 
-Diagnostic schema 2 also reports `cache` summaries and `cache_field` change counts for every packet field.
+Diagnostic schema 3 retains `cache` summaries and `cache_field` change counts for every packet field.
 `warmup`, `cold`, `mismatch`, `bypass_equal`, and `hits` partition observations; `sent` counts attempts,
 not successful calls. `depth_only` distinguishes a depth-only mismatch from `depth_and_other`.
+The raw full-packet difference still includes depth: `mismatch` need not imply a full `updateData` call.
+`depth_sent` counts direct property-write attempts, `depth_failures` counts rejected writes; both are zero
+in baseline mode. The existing nested `invoke` phase includes these native-to-Flash writes.
 Numeric `cache_values` provide first/last examples with the widget/handle ID, previous-value validity,
 full-precision values, exact double bits and the largest finite delta. `same_bits_changed` identifies
 NaN-style misses despite identical bits. Text fields have change counts only; no name strings are logged.
@@ -55,6 +61,8 @@ observations and unavailable inputs, independently of the derived penalty fracti
 All storage is fixed-size and reset per window; file output occurs only at window boundaries.
 The nested `cache_diagnostic` elapsed phase exposes the per-packet inspection cost. Do not compare this
 instrumented build directly against earlier profiling schemas as if their overhead were identical.
+An observed NaN in `Survival_ExhaustionAttributePenaltyPercent` is retained as an upstream input problem,
+not normalized to zero or hidden with bitwise NaN cache equality. Ordinary NaN misses remain visible.
 
 Before installation, preserve the previous DLL/PDB pair, stop Skyrim, and verify the new pair's
 CodeView GUID/age and the unchanged public widget ABI. Build outputs are in `build/src/Release`.

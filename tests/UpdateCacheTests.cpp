@@ -76,14 +76,33 @@ int main()
 	moved[2] = 0.50001;
 	Check(actor.Difference(moved, {"Target", "1.00"}).changed == (std::uint64_t{1} << 2),
 		"Depth-only motion must remain distinguishable from resource changes");
+	Check(actor.MatchesExcept<2>(moved, {"Target", "1.00"}),
+		"Camera motion alone must not resend actor content");
+	Check(!actor.MatchesExcept<2>(moved, {"Renamed", "1.00"}) &&
+		!actor.MatchesExcept<2>(moved, {"Target", "2.00"}),
+		"Depth-only forwarding must not discard changed name or regeneration text");
+	Check(!actor.Matches(moved, {"Target", "1.00"}),
+		"An unaccepted depth write must remain pending");
+	actor.StoreNumber<2>(moved[2]);
+	Check(actor.Matches(moved, {"Target", "1.00"}),
+		"An accepted depth write must update only the accepted depth");
+	original[2] = moved[2];
+	moved[2] += 0.00001;
 	moved[10] = 0.9;
 	const auto combined = actor.Difference(moved, {"Renamed", "2.00"});
+	Check(!actor.MatchesExcept<2>(moved, {"Target", "1.00"}),
+		"Fractional health changes during camera motion must still resend actor content");
 	Check(combined.changed == ((std::uint64_t{1} << 2) | (std::uint64_t{1} << 10) |
 		(std::uint64_t{1} << 17) | (std::uint64_t{1} << 18)), "Combined actor reasons must retain every changed field");
 	Check(actor.Matches(original, {"Target", "1.00"}) && actor.AcceptedNumbers() == original,
 		"Inspecting a diagnostic difference must not accept the observed packet");
 	actor.Reset();
 	Check(!actor.Difference(moved, {"Renamed", "2.00"}).valid, "Reset must not blame stale accepted values");
+	Check(!actor.MatchesExcept<2>(moved, {"Target", "1.00"}),
+		"Reinitialization must resend content even when only depth is excluded");
+	actor.StoreNumber<2>(moved[2]);
+	Check(!actor.MatchesExcept<2>(moved, {"Target", "1.00"}),
+		"A scalar write must not turn a cold cache into accepted content");
 
 	std::cout << "UpdateCache: packet decisions, field reasons, text ownership, reset and floating-point edges passed\n";
 }

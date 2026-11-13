@@ -21,7 +21,7 @@ namespace Perf
 	{
 		Actors, Hidden, Bosses, Custom, DataSent, DataSkipped, SpecialSent,
 		SpecialSkipped, PenaltySent, PenaltySkipped, PositionSent, PositionSkipped,
-		PositionUnavailable, ClearSent, ClearSkipped, SortSent, InvokeFailures, Count
+		PositionUnavailable, ClearSent, ClearSkipped, SortSent, InvokeFailures, DepthSent, DepthFailures, Count
 	};
 
 	enum class PacketKind : std::uint8_t
