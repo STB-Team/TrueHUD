@@ -44,6 +44,18 @@ overflow is reported. Actor details retain 32 IDs per window, first/last states 
 transition counts; they are not a complete event trace. `report_ms` exposes most log-output overhead.
 The first window includes initialization and is not a steady-state performance sample.
 
+Diagnostic schema 2 also reports `cache` summaries and `cache_field` change counts for every packet field.
+`warmup`, `cold`, `mismatch`, `bypass_equal`, and `hits` partition observations; `sent` counts attempts,
+not successful calls. `depth_only` distinguishes a depth-only mismatch from `depth_and_other`.
+Numeric `cache_values` provide first/last examples with the widget/handle ID, previous-value validity,
+full-precision values, exact double bits and the largest finite delta. `same_bits_changed` identifies
+NaN-style misses despite identical bits. Text fields have change counts only; no name strings are logged.
+Penalty packets are sampled even when equal; `penalty_source` records raw survival globals, enabled
+observations and unavailable inputs, independently of the derived penalty fractions.
+All storage is fixed-size and reset per window; file output occurs only at window boundaries.
+The nested `cache_diagnostic` elapsed phase exposes the per-packet inspection cost. Do not compare this
+instrumented build directly against earlier profiling schemas as if their overhead were identical.
+
 Before installation, preserve the previous DLL/PDB pair, stop Skyrim, and verify the new pair's
 CodeView GUID/age and the unchanged public widget ABI. Build outputs are in `build/src/Release`.
 

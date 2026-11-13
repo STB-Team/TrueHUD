@@ -98,7 +98,9 @@ namespace Scaleform
 		scale *= Settings::fInfoBarScale;
 
 		const UpdateCache<3>::Numbers position{ screenPos.x, screenPos.y, scale };
-		if (Perf::UseOptimizations() && _positionCache.Matches(position)) {
+		const bool sendPosition = !Perf::UseOptimizations() || !_positionCache.Matches(position);
+		Perf::TracePacket(Perf::PacketKind::Position, _widgetID, _positionCache, position, true, sendPosition);
+		if (!sendPosition) {
 			Perf::Count(Perf::Counter::PositionSkipped);
 			return;
 		}

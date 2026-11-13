@@ -118,17 +118,42 @@ namespace Scaleform
 			Settings::glob_survivalMagickaPenaltyPercent &&
 			Settings::glob_survivalStaminaPenaltyPercent)
 		{
-			if (Settings::glob_survivalModeEnabled->value == 1) {
-				_healthPenaltyPct = Settings::glob_survivalHealthPenaltyPercent->value / 100.f;
-				_magickaPenaltyPct = Settings::glob_survivalMagickaPenaltyPercent->value / 100.f;
-				_staminaPenaltyPct = Settings::glob_survivalStaminaPenaltyPercent->value / 100.f;
+			const float mode = Settings::glob_survivalModeEnabled->value;
+#if TRUEHUD_PROFILE
+			std::array<double, 4> source{ mode, 0, 0, 0 };
+#endif
+			if (mode == 1) {
+				const float health = Settings::glob_survivalHealthPenaltyPercent->value;
+				const float magicka = Settings::glob_survivalMagickaPenaltyPercent->value;
+				const float stamina = Settings::glob_survivalStaminaPenaltyPercent->value;
+				_healthPenaltyPct = health / 100.f;
+				_magickaPenaltyPct = magicka / 100.f;
+				_staminaPenaltyPct = stamina / 100.f;
+#if TRUEHUD_PROFILE
+				source[1] = health;
+				source[2] = magicka;
+				source[3] = stamina;
+#endif
 			} else {
 				_healthPenaltyPct = 0.f;
 				_magickaPenaltyPct = 0.f;
 				_staminaPenaltyPct = 0.f;
+#if TRUEHUD_PROFILE
+				source[1] = Settings::glob_survivalHealthPenaltyPercent->value;
+				source[2] = Settings::glob_survivalMagickaPenaltyPercent->value;
+				source[3] = Settings::glob_survivalStaminaPenaltyPercent->value;
+#endif
 			}
+#if TRUEHUD_PROFILE
+			Perf::PenaltySource(source);
+#endif
 			UpdatePenalty();
 		}
+#if TRUEHUD_PROFILE
+		else {
+			Perf::PenaltySourceUnavailable();
+		}
+#endif
 	}
 
 	void PlayerWidget::UpdatePlayerWidgetChargeMeters(float a_percent, bool a_bForce, bool a_bLeftHand, bool a_bShow)
@@ -374,6 +399,7 @@ namespace Scaleform
 			auto currentSpecial = fmax(hudHandler->GetCurrentSpecial(playerCharacter), 0.f);
 			const UpdateCache<3>::Numbers special{ ceil(maxSpecial), ceil(currentSpecial), Utils::GetPct(currentSpecial, maxSpecial) };
 			const bool sendSpecial = !Perf::UseOptimizations() || !_bCacheReady || !_specialCache.Matches(special);
+			Perf::TracePacket(Perf::PacketKind::PlayerSpecial, _widgetID, _specialCache, special, _bCacheReady, sendSpecial);
 			if (sendSpecial) {
 				RE::GFxValue specialArgs[3];
 				for (std::size_t i = 0; i < special.size(); ++i) {
@@ -390,7 +416,9 @@ namespace Scaleform
 	void PlayerWidget::UpdatePenalty()
 	{
 		const UpdateCache<3>::Numbers penalty{ _healthPenaltyPct, _magickaPenaltyPct, _staminaPenaltyPct };
-		if (Perf::UseOptimizations() && _bCacheReady && _penaltyCache.Matches(penalty)) {
+		const bool sendPenalty = !Perf::UseOptimizations() || !_bCacheReady || !_penaltyCache.Matches(penalty);
+		Perf::TracePacket(Perf::PacketKind::Penalty, _widgetID, _penaltyCache, penalty, _bCacheReady, sendPenalty);
+		if (!sendPenalty) {
 			Perf::Count(Perf::Counter::PenaltySkipped);
 			return;
 		}

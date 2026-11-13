@@ -355,6 +355,8 @@ namespace Scaleform
 		};
 		const UpdateCache<17, 2>::Strings strings{ targetName, _cachedRegenString };
 		const bool sendData = !Perf::UseOptimizations() || !canCache || !_dataCache.Matches(data, strings);
+		Perf::TracePacket(_barType == BarType::kBossInfoBar ? Perf::PacketKind::BossData : Perf::PacketKind::ActorData,
+			_widgetID, _dataCache, data, canCache, sendData, strings);
 		if (sendData) {
 			RE::GFxValue args[19];
 			for (std::size_t i = 0; i < 4; ++i) {
@@ -384,6 +386,7 @@ namespace Scaleform
 
 			const UpdateCache<3>::Numbers special{ ceil(maxSpecial), ceil(currentSpecial), Utils::GetPct(currentSpecial, maxSpecial) };
 			const bool sendSpecial = !Perf::UseOptimizations() || !canCache || !_specialCache.Matches(special);
+			Perf::TracePacket(Perf::PacketKind::NPCSpecial, _widgetID, _specialCache, special, canCache, sendSpecial);
 			if (sendSpecial) {
 				RE::GFxValue specialArgs[3];
 				for (std::size_t i = 0; i < special.size(); ++i) {

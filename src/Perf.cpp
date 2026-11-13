@@ -3,6 +3,8 @@
 #if TRUEHUD_PROFILE
 #include <algorithm>
 #include <array>
+#include <bit>
+#include <cmath>
 #include <chrono>
 
 namespace Perf
@@ -16,7 +18,7 @@ namespace Perf
 		constexpr std::int64_t WindowNs = 10'000'000'000;
 		constexpr std::array Names{
 			"frame", "delegate", "native", "actor", "boss", "player", "position", "info",
-			"cached_info", "los", "player_regen", "invoke", "sort", "debug_draw", "flash"
+			"cached_info", "los", "player_regen", "invoke", "sort", "debug_draw", "flash", "cache_diagnostic"
 		};
 
 		std::int64_t Now()
@@ -50,12 +52,113 @@ namespace Perf
 			std::uint32_t skipped = 0;
 			std::uint32_t transitions = 0;
 		};
+		constexpr std::size_t PacketCount = static_cast<std::size_t>(PacketKind::Count);
+		constexpr std::size_t MaxPacketFields = 19;
+		constexpr std::array ActorFields{
+			"target_type", "widget_state", "depth", "target_state", "level", "level_color", "outline_color", "soul_type",
+			"max_health", "health", "health_pct", "max_magicka", "magicka", "magicka_pct",
+			"max_stamina", "stamina", "stamina_pct", "name", "regen_health"
+		};
+		constexpr std::array SpecialFields{ "max_special", "special", "special_pct" };
+		constexpr std::array PenaltyFields{ "health_pct", "magicka_pct", "stamina_pct" };
+		constexpr std::array PositionFields{ "screen_x", "screen_y", "scale" };
+		constexpr std::array SourceFields{ "enabled_global", "health_global", "magicka_global", "stamina_global" };
+		struct PacketDescription
+		{
+			const char* name;
+			std::span<const char* const> fields;
+			std::uint64_t depthBit;
+		};
+		constexpr std::array Descriptions{
+			PacketDescription{ "actor_data", ActorFields, std::uint64_t{ 1 } << 2 },
+			PacketDescription{ "boss_data", ActorFields, std::uint64_t{ 1 } << 2 },
+			PacketDescription{ "npc_special", SpecialFields, 0 },
+			PacketDescription{ "player_special", SpecialFields, 0 },
+			PacketDescription{ "penalty", PenaltyFields, 0 },
+			PacketDescription{ "position", PositionFields, 0 }
+		};
+		static_assert(Descriptions.size() == PacketCount && ActorFields.size() == MaxPacketFields);
+
+		struct NumberExample
+		{
+			std::uint32_t id = 0;
+			double before = 0;
+			double after = 0;
+			bool previousValid = false;
+		};
+		struct FieldStats
+		{
+			std::uint64_t changed = 0;
+			std::uint64_t nan = 0;
+			std::uint64_t infinity = 0;
+			std::uint64_t sameBitsChanged = 0;
+			NumberExample first;
+			NumberExample last;
+			double maxAbsDelta = 0;
+			bool sampled = false;
+		};
+		struct PacketStats
+		{
+			std::uint64_t observed = 0;
+			std::uint64_t sent = 0;
+			std::uint64_t warmup = 0;
+			std::uint64_t cold = 0;
+			std::uint64_t mismatch = 0;
+			std::uint64_t bypassEqual = 0;
+			std::uint64_t hits = 0;
+			std::uint64_t depthOnly = 0;
+			std::uint64_t depthAndOther = 0;
+			std::uint64_t multipleFields = 0;
+			std::uint64_t nonFinitePackets = 0;
+			std::array<FieldStats, MaxPacketFields> fields{};
+		};
+
+		void RecordNumber(FieldStats& a_field, std::uint32_t a_id, double a_before, double a_after, bool a_valid, bool a_changed)
+		{
+			a_field.changed += a_changed;
+			a_field.nan += std::isnan(a_after);
+			a_field.infinity += std::isinf(a_after);
+			if (a_valid && a_changed &&
+				std::bit_cast<std::uint64_t>(a_before) == std::bit_cast<std::uint64_t>(a_after)) {
+				++a_field.sameBitsChanged;
+			}
+			const NumberExample example{ a_id, a_before, a_after, a_valid };
+			if (!a_field.sampled) {
+				a_field.first = example;
+				a_field.sampled = true;
+			}
+			a_field.last = example;
+			if (a_valid && std::isfinite(a_before) && std::isfinite(a_after)) {
+				a_field.maxAbsDelta = std::max(a_field.maxAbsDelta, std::abs(a_after - a_before));
+			}
+		}
+
+		void ReportField(const char* a_kind, const char* a_name, const FieldStats& a_field)
+		{
+			logger::info("TrueHUDPerf: cache_field kind={} field={} changed={} nan={} inf={} same_bits_changed={}",
+				a_kind, a_name, a_field.changed, a_field.nan, a_field.infinity, a_field.sameBitsChanged);
+			if (a_field.sampled) {
+				const auto& first = a_field.first;
+				const auto& last = a_field.last;
+				logger::info("TrueHUDPerf: cache_values kind={} field={} first_id={:08X} first_previous_valid={} first_before={:.17g} first_after={:.17g} last_id={:08X} last_previous_valid={} last_before={:.17g} last_after={:.17g} max_abs_delta={:.17g} first_before_bits={:016X} first_after_bits={:016X} last_before_bits={:016X} last_after_bits={:016X}",
+					a_kind, a_name, first.id, first.previousValid, first.before, first.after,
+					last.id, last.previousValid, last.before, last.after, a_field.maxAbsDelta,
+					std::bit_cast<std::uint64_t>(first.before), std::bit_cast<std::uint64_t>(first.after),
+					std::bit_cast<std::uint64_t>(last.before), std::bit_cast<std::uint64_t>(last.after));
+			}
+		}
+
 		struct Window
 		{
 			std::array<Timing, PhaseCount> frame{};
 			std::array<Metric, PhaseCount> metrics{};
 			std::array<std::uint64_t, CounterCount> counters{};
 			std::array<BarSample, 32> bars{};
+			std::array<PacketStats, PacketCount> packets{};
+			std::array<FieldStats, 4> penaltySources{};
+			std::uint64_t sourceSamples = 0;
+			std::uint64_t sourceEnabled = 0;
+			std::uint64_t sourceMissing = 0;
 			std::size_t barCount = 0;
 			std::uint64_t barOverflow = 0;
 			std::uint64_t frames = 0;
@@ -73,7 +176,7 @@ namespace Perf
 			auto& w = window;
 			const auto reportStart = Now();
 			const auto sampleCount = static_cast<std::size_t>(std::min<std::uint64_t>(w.frames, SampleCapacity));
-			logger::info("TrueHUDPerf: window={} mode={} tid={} duration_s={:.3f} frames={} samples={} cadence_mean_ms={:.4f} cadence_max_ms={:.4f} nested_elapsed_not_additive=1",
+			logger::info("TrueHUDPerf: window={} mode={} tid={} duration_s={:.3f} frames={} samples={} cadence_mean_ms={:.4f} cadence_max_ms={:.4f} nested_elapsed_not_additive=1 schema=2",
 				w.sequence, w.optimized ? "optimized" : "baseline", GetCurrentThreadId(), (a_now - w.start) * 1e-9,
 				w.frames, sampleCount, w.dtSum * 1000.0 / w.frames, w.maxDt * 1000.0);
 			for (std::size_t i = 0; i < PhaseCount; ++i) {
@@ -92,6 +195,25 @@ namespace Perf
 			const auto& c = w.counters;
 			logger::info("TrueHUDPerf: counts actors={} hidden={} bosses={} custom={} data_sent={} data_skipped={} special_sent={} special_skipped={} penalty_sent={} penalty_skipped={} position_sent={} position_skipped={} position_unavailable={} clear_sent={} clear_skipped={} sort_sent={} invoke_failures={}",
 				c[0], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8], c[9], c[10], c[11], c[12], c[13], c[14], c[15], c[16]);
+			for (std::size_t i = 0; i < PacketCount; ++i) {
+				const auto& packet = w.packets[i];
+				const auto& description = Descriptions[i];
+				if (packet.observed == 0) {
+					continue;
+				}
+				logger::info("TrueHUDPerf: cache kind={} observed={} sent={} warmup={} cold={} mismatch={} bypass_equal={} hits={} depth_only={} depth_and_other={} multiple_fields={} nonfinite_packets={}",
+					description.name, packet.observed, packet.sent, packet.warmup, packet.cold, packet.mismatch,
+					packet.bypassEqual, packet.hits, packet.depthOnly, packet.depthAndOther, packet.multipleFields, packet.nonFinitePackets);
+				for (std::size_t field = 0; field < description.fields.size(); ++field) {
+					ReportField(description.name, description.fields[field], packet.fields[field]);
+				}
+			}
+			if (w.sourceSamples || w.sourceMissing) {
+				logger::info("TrueHUDPerf: penalty_source samples={} enabled={} unavailable={}", w.sourceSamples, w.sourceEnabled, w.sourceMissing);
+				for (std::size_t i = 0; i < SourceFields.size(); ++i) {
+					ReportField("penalty_source", SourceFields[i], w.penaltySources[i]);
+				}
+			}
 			for (std::size_t i = 0; i < w.barCount; ++i) {
 				const auto& bar = w.bars[i];
 				logger::info("TrueHUDPerf: bar={:08X} state={}->{} target={}->{} hp={:.3f}->{:.3f} max_hp={:.3f} transitions={} sent={} skipped={}",
@@ -152,6 +274,9 @@ namespace Perf
 			w.counters.fill(0);
 			w.barCount = 0;
 			w.barOverflow = 0;
+			w.packets.fill({});
+			w.penaltySources.fill({});
+			w.sourceSamples = w.sourceEnabled = w.sourceMissing = 0;
 			for (auto& metric : w.metrics) {
 				metric.ns = metric.calls = metric.maxNs = 0;
 			}
@@ -191,6 +316,73 @@ namespace Perf
 		bar.lastHealth = a_health;
 		bar.maxHealth = a_maxHealth;
 		a_sent ? ++bar.sent : ++bar.skipped;
+	}
+	void Packet(PacketKind a_kind, std::uint32_t a_id, const Scaleform::CacheDifference& a_difference,
+		bool a_ready, bool a_sent, std::span<const double> a_previous, std::span<const double> a_current)
+	{
+		auto& w = window;
+		if (!w.active) {
+			return;
+		}
+		const auto index = static_cast<std::size_t>(a_kind);
+		const auto& description = Descriptions[index];
+		auto& packet = w.packets[index];
+		++packet.observed;
+		packet.sent += a_sent;
+		packet.nonFinitePackets += a_difference.nonFinite != 0;
+		if (!a_ready) {
+			++packet.warmup;
+		} else if (!a_difference.valid) {
+			++packet.cold;
+		} else if (a_difference.changed) {
+			++packet.mismatch;
+		} else if (a_sent) {
+			++packet.bypassEqual;
+		} else {
+			++packet.hits;
+		}
+		if (a_difference.changed) {
+			packet.multipleFields += std::popcount(a_difference.changed) > 1;
+			if (description.depthBit && (a_difference.changed & description.depthBit)) {
+				a_difference.changed == description.depthBit ? ++packet.depthOnly : ++packet.depthAndOther;
+			}
+		}
+		for (std::size_t i = 0; i < description.fields.size(); ++i) {
+			const auto bit = std::uint64_t{ 1 } << i;
+			const bool changed = (a_difference.changed & bit) != 0;
+			auto& field = packet.fields[i];
+			if (i < a_current.size()) {
+				if (!a_difference.valid || changed || (a_difference.nonFinite & bit) || a_kind == PacketKind::Penalty) {
+					RecordNumber(field, a_id, a_previous[i], a_current[i], a_difference.valid, changed);
+				}
+			} else {
+				field.changed += changed;
+			}
+		}
+	}
+
+	void PenaltySource(const std::array<double, 4>& a_values)
+	{
+		Scope scope(Phase::CacheDiagnostic);
+		auto& w = window;
+		if (!w.active) {
+			return;
+		}
+		++w.sourceSamples;
+		w.sourceEnabled += a_values[0] == 1;
+		for (std::size_t i = 0; i < a_values.size(); ++i) {
+			auto& field = w.penaltySources[i];
+			const bool valid = field.sampled;
+			const double previous = field.last.after;
+			RecordNumber(field, 0, previous, a_values[i], valid, valid && previous != a_values[i]);
+		}
+	}
+
+	void PenaltySourceUnavailable()
+	{
+		if (window.active) {
+			++window.sourceMissing;
+		}
 	}
 }
 #endif
