@@ -17,5 +17,10 @@ namespace Scaleform
 	protected:
 		virtual void UpdatePosition() override;
 		virtual void LoadConfig() override;
+
+		// Last scale actually pushed to the movie clip. Scaleform caches tessellated
+		// geometry and rendered filters per scale, so a scale that changes by a hair
+		// every frame throws all of that away every frame.
+		float _lastAppliedScale = -1.f;
 	};
 }

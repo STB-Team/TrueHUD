@@ -5,6 +5,7 @@
 #include "Scaleform/Scaleform.h"
 #include "NPCNameProvider.h"
 
+
 void MessageHandler(SKSE::MessagingInterface::Message* a_msg)
 {
 	// Try requesting APIs at multiple steps to try to work around the SKSE messaging bug
@@ -45,7 +46,7 @@ namespace
 			util::report_and_fail("Failed to find standard logging directory"sv);
 		}
 
-		*path /= fmt::format("{}.log"sv, Plugin::NAME);
+		*path /= fmt::format("{}.log"sv, "TrueHUD");
 		auto sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(path->string(), true);
 #endif
 
@@ -64,11 +65,11 @@ namespace
 	}
 }
 
-extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a_skse, SKSE::PluginInfo* a_info)
+extern "C" DLLEXPORT bool SKSEPlugin_Query(const SKSE::QueryInterface* a_skse, SKSE::PluginInfo* a_info)
 {
 	a_info->infoVersion = SKSE::PluginInfo::kVersion;
-	a_info->name = Plugin::NAME.data();
-	a_info->version = Plugin::VERSION[0];
+	a_info->name = "TrueHUD";
+	a_info->version = 1;
 
 	if (a_skse->IsEditor()) {
 		logger::critical("Loaded in editor, marking as incompatible"sv);
@@ -76,7 +77,7 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a
 	}
 
 	const auto ver = a_skse->RuntimeVersion();
-	if (ver < SKSE::RUNTIME_SSE_1_5_39) {
+	if (ver != SKSE::RUNTIME_SSE_1_5_97) {
 		logger::critical(FMT_STRING("Unsupported runtime version {}"), ver.string());
 		return false;
 	}
@@ -87,25 +88,24 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Query(const SKSE::QueryInterface* a
 extern "C" DLLEXPORT constinit auto SKSEPlugin_Version = []() {
 	SKSE::PluginVersionData v;
 
-	v.PluginVersion(Plugin::VERSION);
-	v.PluginName(Plugin::NAME);
+	v.PluginVersion(1);
+	v.PluginName("TrueHUD");
 	v.AuthorName("Ersh");
 	v.UsesAddressLibrary();
-	v.CompatibleVersions({ SKSE::RUNTIME_SSE_LATEST });
-	v.UsesNoStructs();
+	v.CompatibleVersions({ SKSE::RUNTIME_SSE_1_5_97 });
 
 	return v;
 }();
 
-extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
+extern "C" DLLEXPORT bool SKSEPlugin_Load(const SKSE::LoadInterface* a_skse)
 {
 #ifndef NDEBUG
 	while (!IsDebuggerPresent()) { Sleep(100); }
 #endif
-	REL::Module::reset();  // Clib-NG bug workaround
+	
 	
 	InitializeLog();
-	logger::info("{} v{}"sv, Plugin::NAME, Plugin::VERSION.string());
+	logger::info("{} v{}"sv, "TrueHUD", 1);
 
 	SKSE::Init(a_skse);
 	SKSE::AllocTrampoline(1 << 8);
@@ -121,7 +121,7 @@ extern "C" DLLEXPORT bool SKSEAPI SKSEPlugin_Load(const SKSE::LoadInterface* a_s
 	return true;
 }
 
-extern "C" DLLEXPORT void* SKSEAPI RequestPluginAPI(const TRUEHUD_API::InterfaceVersion a_interfaceVersion)
+extern "C" DLLEXPORT void* RequestPluginAPI(const TRUEHUD_API::InterfaceVersion a_interfaceVersion)
 {
 	auto api = Messaging::TrueHUDInterface::GetSingleton();
 

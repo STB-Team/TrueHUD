@@ -24,9 +24,18 @@ namespace Scaleform
 		virtual void UpdatePosition() override;
 		virtual void LoadConfig() override;
 
-		virtual void UpdateInfo();
+		virtual void UpdateInfo(float a_deltaTime);
 
 		virtual void UpdatePenalty();
+
+		// Walking the player's active effect list to sum up the regeneration rates is far
+		// too expensive to do three times a frame, and the numbers can't be read that fast
+		// anyway. Negative timer forces a refresh on the first update.
+		void RefreshRegenStrings();
+		float _regenTimer = -1.f;
+		std::string _healthRegenString;
+		std::string _magickaRegenString;
+		std::string _staminaRegenString;
 
 		virtual void ToggleVanillaBars(bool a_bEnable);
 		virtual void ToggleVanillaEnchantmentChargeMeters(bool a_bEnable);

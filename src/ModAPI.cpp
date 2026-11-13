@@ -328,12 +328,15 @@ namespace Messaging
 	bool TrueHUDInterface::HasInfoBar(RE::ActorHandle a_actorHandle, bool a_bFloatingOnly /*= false*/) const noexcept
 	{
 		auto hudHandler = HUDHandler::GetSingleton();
-
 		if (a_bFloatingOnly) {
 			return hudHandler->HasActorInfoBar(a_actorHandle);
 		} else {
 			return hudHandler->HasActorInfoBar(a_actorHandle) || hudHandler->HasBossInfoBar(a_actorHandle);
 		}
+	}
+	bool TrueHUDInterface::CheckActorForBoss(RE::ActorHandle a_actorHandle) noexcept
+	{
+		return HUDHandler::GetSingleton()->CheckActorForBoss(a_actorHandle);
 	}
 
 	bool TrueHUDInterface::IsTargetControlTaken() const noexcept

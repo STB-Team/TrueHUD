@@ -317,6 +317,19 @@ namespace Scaleform
 		void UpdateBossQueue();
 		void AddToDepthsArray(std::shared_ptr<TRUEHUD_API::WidgetBase> a_widget, uint32_t a_widgetType, RE::GFxValue& a_array);
 
+		// Depth sorting is only pushed to the movie when the resulting order actually
+		// changes - re-sorting and re-stacking every widget every frame is not free on
+		// the ActionScript side.
+		struct DepthEntry
+		{
+			float depth;
+			uint32_t widgetType;
+			uint32_t widgetID;
+
+			uint64_t Key() const { return (static_cast<uint64_t>(widgetType) << 32) | widgetID; }
+		};
+		void SortDepths();
+
 		void UpdateDebugDraw(float a_deltaTime);
 
 		void DrawLine2D(RE::NiPoint2& a_start, RE::NiPoint2& a_end, uint32_t a_color, float a_thickness);
@@ -347,6 +360,9 @@ namespace Scaleform
 		std::shared_ptr<RecentLoot> _recentLoot;
 		std::unordered_map<uint32_t, std::shared_ptr<FloatingText>> _floatingTextMap;
 		uint32_t _nextFloatingTextID = 0;
+
+		std::vector<DepthEntry> _depthEntries;
+		std::vector<uint64_t> _lastDepthOrder;
 
 		using CustomWidgets = std::unordered_map<uint32_t, std::shared_ptr<WidgetBase>>;
 		using CustomWidgetTypes = std::unordered_map<uint32_t, CustomWidgets>;

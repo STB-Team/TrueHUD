@@ -291,7 +291,7 @@ namespace Hooks
 
 		REL::safe_fill(hook.address() + 0x13B, 0x90, 7);
 		auto& trampoline = SKSE::GetTrampoline();
-		trampoline.write_branch<6>(hook.address() + 0x13B, trampoline.allocate(patch));
+		trampoline.write_branch<6>(hook.address() + 0x13B, trampoline.allocate(patch.getSize()));
 	}
 
 	void DamageHook::HandleHealthDamage_Actor(RE::Actor* a_this, RE::Actor* a_attacker, float a_damage)

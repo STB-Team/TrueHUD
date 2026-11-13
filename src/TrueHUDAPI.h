@@ -134,10 +134,17 @@ namespace TRUEHUD_API
 
 		void ProcessDelegates()
 		{
-			while (!_taskQueue.empty()) {
-				auto& task = _taskQueue.front();
-				task();
-				_taskQueue.pop();
+			std::queue<WidgetTask> tasks;
+			{
+				Locker locker(_lock);
+				tasks.swap(_taskQueue);
+			}
+			while (!tasks.empty()) {
+				auto& task = tasks.front();
+				if (task) {
+					task();
+				}
+				tasks.pop();
 			}
 		}
 
@@ -374,6 +381,7 @@ namespace TRUEHUD_API
 		/// <param name="a_bFloatingOnly">Only return true if the bar is a floating one</param>
 		/// <returns>Whether the bar exists or not</returns>
 		[[nodiscard]] virtual bool HasInfoBar(RE::ActorHandle a_actorHandle, bool a_bFloatingOnly = false) const noexcept = 0;
+
 	};
 
 	class IVTrueHUD4 : public IVTrueHUD3
@@ -381,6 +389,15 @@ namespace TRUEHUD_API
 	public:
 		// Debug drawing API functions
 		virtual void DrawCapsule(const RE::NiPoint3& a_vertexA, const RE::NiPoint3& a_vertexB, float a_radius, float a_duration = 0.f, uint32_t a_color = 0xFF0000FF, float a_thickness = 1.f) noexcept = 0;
+
+		/// <summary>
+		/// Returns whether the actor qualifies as a boss according to TrueHUD's boss detection
+		/// (race / keyword / specific NPC / boss location ref, minus the blacklist), regardless of
+		/// whether a boss bar is currently active for it.
+		/// </summary>
+		/// <param name="a_actorHandle">Actor handle</param>
+		/// <returns>Whether the actor is considered a boss</returns>
+		[[nodiscard]] virtual bool CheckActorForBoss(RE::ActorHandle a_actorHandle) noexcept = 0;
 	};
 
 	typedef void* (*_RequestPluginAPI)(const InterfaceVersion interfaceVersion);
@@ -393,7 +410,7 @@ namespace TRUEHUD_API
 	/// <returns>The pointer to the API singleton, or nullptr if request failed</returns>
 	[[nodiscard]] inline void* RequestPluginAPI(const InterfaceVersion a_interfaceVersion = InterfaceVersion::V4)
 	{
-		auto pluginHandle = GetModuleHandle("TrueHUD.dll");
+		auto pluginHandle = GetModuleHandle(L"TrueHUD.dll");
 		_RequestPluginAPI requestAPIFunction = (_RequestPluginAPI)GetProcAddress(pluginHandle, "RequestPluginAPI");
 		if (requestAPIFunction) {
 			return requestAPIFunction(a_interfaceVersion);

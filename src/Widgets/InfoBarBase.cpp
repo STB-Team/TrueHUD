@@ -94,9 +94,92 @@ namespace Scaleform
 		args[19].SetNumber(hudMenu->GetSpecialBarColor(_refHandle, ColorType::FlashColor));
 		_object.Invoke("setColors", nullptr, args, 20);
 	}
+	namespace
+	{
+		float actor_value_regeneration_value(RE::ActorValue av, RE::Actor* actor)
+		{
+			if (!actor) {
+				return 0.f;
+			}
 
-	void InfoBarBase::UpdateInfo()
-	{	
+			const auto active_effects = actor->AsMagicTarget()->GetActiveEffectList();
+			if (!active_effects) {
+				return 0.f;
+			}
+			auto num = 0.f;
+			for (auto active_effect : *active_effects) {
+				if (active_effect->effect->baseEffect->data.primaryAV == av &&
+					!active_effect->flags.any(RE::ActiveEffect::Flag::kInactive) &&
+					!active_effect->effect->baseEffect->data.flags.any(RE::EffectSetting::EffectSettingData::Flag::kRecover) &&
+					!active_effect->effect->baseEffect->data.flags.any(RE::EffectSetting::EffectSettingData::Flag::kHostile)) {
+					num += active_effect->magnitude;
+				}
+			}
+
+			return num;
+		}
+
+		RE::BGSPerk* PoisonPerk = nullptr;
+		RE::BGSKeyword* PoisonKw = nullptr;
+		RE::SpellItem* BossStaggerKD = nullptr;
+		bool bLookedUpForms = false;
+
+		// A failed lookup used to leave PoisonPerk null, which retried all three lookups
+		// every frame on every widget - and LookupByEditorID takes a lock.
+		void LookupForms()
+		{
+			if (bLookedUpForms) {
+				return;
+			}
+			bLookedUpForms = true;
+
+			if (auto dataHandler = RE::TESDataHandler::GetSingleton()) {
+				PoisonPerk = dataHandler->LookupForm<RE::BGSPerk>(0x01928D, "STB.esp");
+			}
+			PoisonKw = RE::TESForm::LookupByEditorID<RE::BGSKeyword>("aaMZkw_PoisonDamage");
+			BossStaggerKD = RE::TESForm::LookupByEditorID<RE::SpellItem>("aaMZs_Boss_AllStaggerKD");
+		}
+	}
+
+	void InfoBarBase::RefreshCachedInfo(RE::Actor* a_actor, RE::PlayerCharacter* a_playerCharacter, bool a_bIsTarget)
+	{
+		LookupForms();
+
+		_cachedIsHostile = a_actor->IsHostileToActor(a_playerCharacter);
+		_cachedIsTeammate = Utils::IsPlayerTeammateOrSummon(a_actor);
+		_cachedName = NPCNameProvider::GetSingleton()->GetName(a_actor);
+		_cachedLevel = a_actor->GetLevel();
+
+		if (Settings::kywd_Dragon && a_actor->HasKeyword(Settings::kywd_Dragon)) {
+			_cachedSoulType = 7;
+		} else if (Settings::kywd_noSoulTrap && a_actor->HasKeyword(Settings::kywd_noSoulTrap)) {
+			_cachedSoulType = 0;
+		} else if (auto isSentient = IsSentient(a_actor)) {  // If sentient, then don't bother - all sentients have black soul gem levels
+			_cachedSoulType = 6;
+		} else {
+			_cachedSoulType = GetSoulType(_cachedLevel, static_cast<uint8_t>(isSentient));
+		}
+
+		// The line of sight check is a ray cast - by far the most expensive thing in here.
+		if (a_bIsTarget) {
+			_cachedHasLineOfSight = true;
+		} else {
+			bool r8 = false;
+			_cachedHasLineOfSight = a_playerCharacter->HasLineOfSight(a_actor, r8);
+		}
+
+		float health_regen = actor_value_regeneration_value(RE::ActorValue::kHealth, a_actor);
+		if (health_regen > 0.f && _cachedIsHostile && PoisonPerk && PoisonKw && a_playerCharacter->HasPerk(PoisonPerk) &&
+			a_actor->AsMagicTarget()->HasMagicEffectWithKeyword(PoisonKw, 0)) {
+			health_regen *= 0.5f;
+		}
+		_cachedRegenString = fmt::format("{:.{}f}"sv, health_regen, 2);
+
+		_cachedIsBoss = HUDHandler::GetSingleton()->CheckActorForBoss(a_actor->GetHandle());
+	}
+
+	void InfoBarBase::UpdateInfo(float a_deltaTime)
+	{
 		auto playerCharacter = RE::PlayerCharacter::GetSingleton();
 		auto playerLevel = playerCharacter->GetLevel();
 
@@ -110,20 +193,30 @@ namespace Scaleform
 			_widgetState = WidgetState::kRemoved;
 			return;
 		}
-		
+
 		auto hudMenu = HUDHandler::GetTrueHUDMenu();
 
 		auto targetHandle = hudMenu->GetTarget();
 		auto softTargetHandle = hudMenu->GetSoftTarget();
 
-		bool bIsTeammate = Utils::IsPlayerTeammateOrSummon(actor);
+		// Whether this actor is the player's target has to be re-evaluated every frame,
+		// everything else behind the target type is cached.
+		bool bIsTarget = (targetHandle && _refHandle == targetHandle) || (!targetHandle && _refHandle == softTargetHandle);
+
+		_cachedInfoTimer -= a_deltaTime;
+		if (_cachedInfoTimer < 0.f) {
+			RefreshCachedInfo(actor, playerCharacter, bIsTarget);
+			// Spread the refreshes out over the interval so every visible bar doesn't
+			// land on the same frame.
+			_cachedInfoTimer = Settings::fWidgetSlowUpdateInterval * (1.f + static_cast<float>(_widgetID % 16) * 0.03125f);
+		}
+
+		bool bIsTeammate = _cachedIsTeammate;
 
 		TargetType targetType;
-		if (targetHandle && _refHandle == targetHandle) {
+		if (bIsTarget) {
 			targetType = kTarget;
-		} else if (!targetHandle && _refHandle == softTargetHandle) {
-			targetType = kTarget;
-		} else if (actor->IsHostileToActor(playerCharacter)) {
+		} else if (_cachedIsHostile) {
 			targetType = kEnemy;
 		} else if (bIsTeammate) {
 			targetType = kTeammate;
@@ -145,15 +238,19 @@ namespace Scaleform
 		}
 
 		if (_widgetState < kDelayedRemoval) {
-			RE::GFxValue result;
-			_object.Invoke("isHidden", &result);
-			if (result.GetBool()) {
-				_widgetState = WidgetState::kHidden;
+			// bHidden can only flip to true while the hide animation is running, so there's
+			// no point paying for the round trip into the VM in any other state.
+			if (_widgetState == kPendingHide) {
+				RE::GFxValue result;
+				_object.Invoke("isHidden", &result);
+				if (result.GetBool()) {
+					_widgetState = WidgetState::kHidden;
+				}
 			}
 
 			const auto shouldBarBeDisplayed = [&]() {
 				if (_barType == BarType::kBossInfoBar) {
-					return !bIsTeammate && actor->IsInCombat() && actor->IsHostileToActor(playerCharacter);
+					return !bIsTeammate && actor->IsInCombat() && _cachedIsHostile;
 				} else if (_barType == BarType::kActorInfoBar) {
 					if (targetType > kTarget && !actor->IsInCombat()) {
 						return false;
@@ -180,8 +277,7 @@ namespace Scaleform
 				if (_bIsOffscreen) {
 					SetWidgetState(WidgetStateMode::kHide);
 				} else {
-					bool r8 = false;
-					bool bHasLOS = targetType == kTarget ? true : playerCharacter->HasLineOfSight(actor, r8);
+					bool bHasLOS = targetType == kTarget ? true : _cachedHasLineOfSight;
 					bool bVisible = bHasLOS && !(actor->AsActorValueOwner()->GetActorValue(RE::ActorValue::kInvisibility) > 0);
 					if (bVisible) {
 						SetWidgetState(WidgetStateMode::kShow);
@@ -192,8 +288,8 @@ namespace Scaleform
 			} 
 		}
 
-		auto targetName = NPCNameProvider::GetSingleton()->GetName(actor);
-		auto targetLevel = actor->GetLevel();
+		const auto& targetName = _cachedName;
+		auto targetLevel = _cachedLevel;
 
 		uint32_t levelColor = Settings::uDefaultColor;
 		uint32_t outlineColor = Settings::uDefaultColorOutline;
@@ -212,19 +308,7 @@ namespace Scaleform
 			}
 		}
 
-		auto hudHandler = HUDHandler::GetSingleton();
-
-		uint32_t soulType = 0;
-		
-		if (Settings::kywd_Dragon && actor->HasKeyword(Settings::kywd_Dragon)) {
-			soulType = 7;
-		} else if (Settings::kywd_noSoulTrap && actor->HasKeyword(Settings::kywd_noSoulTrap)) {
-			soulType = 0;
-		} else if (auto isSentient = IsSentient(actor)) {  // If sentient, then don't bother - all sentients have black soul gem levels
-			soulType = 6;
-		} else {
-			soulType = GetSoulType(targetLevel, static_cast<uint8_t>(isSentient));
-		}
+		uint32_t soulType = _cachedSoulType;
 
 		auto actorValueOwner = actor->AsActorValueOwner();
 		float permanentHealth = actorValueOwner->GetPermanentActorValue(RE::ActorValue::kHealth);
@@ -244,8 +328,7 @@ namespace Scaleform
 		float temporaryStamina = actor->GetActorValueModifier(RE::ACTOR_VALUE_MODIFIER::kTemporary, RE::ActorValue::kStamina);
 		float maxStamina = permanentStamina + temporaryStamina;
 		float stamina = actorValueOwner->GetActorValue(RE::ActorValue::kStamina);
-		
-		RE::GFxValue args[18];
+		RE::GFxValue args[19];
 		args[0].SetNumber(targetType);
 		args[1].SetNumber(_widgetState);
 		args[2].SetNumber(_depth);
@@ -264,18 +347,39 @@ namespace Scaleform
 		args[15].SetNumber(ceil(maxStamina));
 		args[16].SetNumber(ceil(stamina));
 		args[17].SetNumber(Utils::GetPct(stamina, maxStamina));
+		args[18].SetString(_cachedRegenString);
 
-		_object.Invoke("updateData", nullptr, args, 18);
+		_object.Invoke("updateData", nullptr, args, 19);
 
-		if (hudHandler && hudHandler->bSpecialFunctionsProvided) {
+		if (_cachedIsBoss) {
+			float maxSpecial = 0;
+			float currentSpecial = 0;
+			if (actor->AsMagicTarget() && actor->AsMagicTarget()->GetActiveEffectList())
+			for (auto ef : *actor->AsMagicTarget()->GetActiveEffectList())
+				if (ef->spell == BossStaggerKD) {
+					maxSpecial = fmax(ef->duration, 0.f);
+					currentSpecial = fmax(ef->duration - ef->elapsedSeconds, 0.f);
+				}
+
 			RE::GFxValue specialArgs[3];
-			auto maxSpecial = fmax(hudHandler->GetMaxSpecial(actor), 0.f);
-			auto currentSpecial = fmax(hudHandler->GetCurrentSpecial(actor), 0.f);
-
 			specialArgs[0].SetNumber(ceil(maxSpecial));
 			specialArgs[1].SetNumber(ceil(currentSpecial));
 			specialArgs[2].SetNumber(Utils::GetPct(currentSpecial, maxSpecial));
 			_object.Invoke("updateSpecial", nullptr, specialArgs, 3);
 		}
+	//	const RE::GFxValue var5{ ceil(health) };
+	//	RE::GFxValue var;
+	//	//_view->GetVariable(&var, "_root.TrueHUD.Bars.HealthBar.BurNumValue");
+	//	//var.SetMember("htmlText", var5);
+	//	//var.SetMember("text", var5);
+	//	//_object.GetMember("Bars.HealthBar.BurNumValue.htmlText", &var);
+	//	//var.SetNumber(ceil(health));
+	//	//_object.GetMember("Bars.HealthBar.BurNumValue.text", &var);
+	//	//var.SetNumber(ceil(health));
+	//	_object.GetMember("Bars.HealthBar.BurNumValue", &var);
+	//	var.SetMember("htmlText", var5);
+	//	//_object.GetMember("Bars.HealthBar.BurNumValue", &var);
+	//	//var.SetMember("text", var5);
+		
 	}
 }

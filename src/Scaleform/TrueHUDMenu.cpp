@@ -896,8 +896,7 @@ namespace Scaleform
 
 	void TrueHUDMenu::DrawSphere(const RE::NiPoint3& a_origin, float a_radius, uint32_t a_segments /*= 16*/, float a_duration /*= 0.f*/, uint32_t a_color /*= 0xFF0000FF*/, float a_thickness /*= 1.f*/)
 	{
-		constexpr uint32_t minSegments = 4;
-		a_segments = std::max(a_segments, minSegments);
+		a_segments = std::max(a_segments, 4u);
 
 		RE::NiPoint3 vertex1, vertex2, vertex3, vertex4;
 		const float angleInc = 2.f * PI / a_segments;
@@ -936,8 +935,7 @@ namespace Scaleform
 
 	void TrueHUDMenu::DrawCylinder(const RE::NiPoint3& a_start, const RE::NiPoint3& a_end, float a_radius, uint32_t a_segments, float a_duration /*= 0.f*/, uint32_t a_color /*= 0xFF0000FF*/, float a_thickness /*= 1.f*/)
 	{
-		constexpr uint32_t minSegments = 4;
-		a_segments = std::max(a_segments, minSegments);
+		a_segments = std::max(a_segments, 4u);
 
 		RE::NiPoint3 segment;
 		RE::NiPoint3 p1, p2, p3, p4;
@@ -977,8 +975,7 @@ namespace Scaleform
 
 	void TrueHUDMenu::DrawCone(const RE::NiPoint3& a_origin, const RE::NiPoint3& a_direction, float a_length, float a_angleWidth, float a_angleHeight, uint32_t a_segments, float a_duration /*= 0.f*/, uint32_t a_color /*= 0xFF0000FF*/, float a_thickness /*= 1.f*/)
 	{
-		constexpr uint32_t minSegments = 4;
-		a_segments = std::max(a_segments, minSegments);
+		a_segments = std::max(a_segments, 4u);
 		
 		const float angle1 = a_angleHeight < 1e-4f ? 1e-4f : a_angleHeight < PI - 1e-4f ? a_angleHeight : PI - 1e-4f;
 		const float angle2 = a_angleWidth < 1e-4f ? 1e-4f : a_angleWidth < PI - 1e-4f ? a_angleWidth : PI - 1e-4f;
@@ -1368,8 +1365,7 @@ namespace Scaleform
 			RemoveRecentLootWidget();
 		}
 
-		RE::GFxValue depthArray;
-		_view->CreateArray(&depthArray);
+		_depthEntries.clear();
 
 		// actor info bars
 		for (auto widget_it = _actorInfoBarMap.begin(), next_widget_it = widget_it; widget_it != _actorInfoBarMap.end(); widget_it = next_widget_it) {
@@ -1388,7 +1384,7 @@ namespace Scaleform
 			}
 
 			// add to depths array
-			AddToDepthsArray(widget, static_cast<uint32_t>(TrueHUDWidgetType::kInfoBar), depthArray);
+			_depthEntries.emplace_back(DepthEntry{ widget->_depth, static_cast<uint32_t>(TrueHUDWidgetType::kInfoBar), widget->_widgetID });
 		}
 		
 		// boss bars
@@ -1408,28 +1404,28 @@ namespace Scaleform
 			}
 
 			// add to depths array
-			AddToDepthsArray(widget, static_cast<uint32_t>(TrueHUDWidgetType::kBossBar), depthArray);
+			_depthEntries.emplace_back(DepthEntry{ widget->_depth, static_cast<uint32_t>(TrueHUDWidgetType::kBossBar), widget->_widgetID });
 		}
 		
 		if (_shoutIndicator) {
 			_shoutIndicator->ProcessDelegates();
 			_shoutIndicator->Update(a_deltaTime);
 
-			AddToDepthsArray(_shoutIndicator, static_cast<uint32_t>(TrueHUDWidgetType::kStandaloneShoutIndicator), depthArray);
+			_depthEntries.emplace_back(DepthEntry{ _shoutIndicator->_depth, static_cast<uint32_t>(TrueHUDWidgetType::kStandaloneShoutIndicator), _shoutIndicator->_widgetID });
 		}
 
 		if (_playerWidget) {
 			_playerWidget->ProcessDelegates();
 			_playerWidget->Update(a_deltaTime);
 
-			AddToDepthsArray(_playerWidget, static_cast<uint32_t>(TrueHUDWidgetType::kPlayerWidget), depthArray);
+			_depthEntries.emplace_back(DepthEntry{ _playerWidget->_depth, static_cast<uint32_t>(TrueHUDWidgetType::kPlayerWidget), _playerWidget->_widgetID });
 		}
 
 		if (_recentLoot) {
 			_recentLoot->ProcessDelegates();
 			_recentLoot->Update(a_deltaTime);
 
-			AddToDepthsArray(_recentLoot, static_cast<uint32_t>(TrueHUDWidgetType::kRecentLootWidget), depthArray);
+			_depthEntries.emplace_back(DepthEntry{ _recentLoot->_depth, static_cast<uint32_t>(TrueHUDWidgetType::kRecentLootWidget), _recentLoot->_widgetID });
 		}
 
 		// floating text
@@ -1450,7 +1446,7 @@ namespace Scaleform
 			widget->Update(a_deltaTime);
 
 			// add to depths array
-			AddToDepthsArray(widget, static_cast<uint32_t>(TrueHUDWidgetType::kFloatingText), depthArray);
+			_depthEntries.emplace_back(DepthEntry{ widget->_depth, static_cast<uint32_t>(TrueHUDWidgetType::kFloatingText), widget->_widgetID });
 		}
 
 		// custom widgets
@@ -1482,7 +1478,7 @@ namespace Scaleform
 		}
 
 		// sort widget depths
-		_view->Invoke("_root.TrueHUD.SortDepths", nullptr, &depthArray, 1);
+		SortDepths();
 
 		UpdateColors();
 
@@ -1681,6 +1677,58 @@ namespace Scaleform
 		data.SetMember("widgetType", widgetType);
 
 		a_array.PushBack(data);
+	}
+
+	void TrueHUDMenu::SortDepths()
+	{
+		// The movie stacks the widgets in the order they arrive here, so nothing needs to
+		// be pushed while that order stays the same - and it stays the same most frames,
+		// even though the raw depth values change constantly as the player moves.
+		std::stable_sort(_depthEntries.begin(), _depthEntries.end(), [](const DepthEntry& a_lhs, const DepthEntry& a_rhs) {
+			return a_lhs.depth > a_rhs.depth;
+		});
+
+		bool bOrderChanged = _depthEntries.size() != _lastDepthOrder.size();
+		if (!bOrderChanged) {
+			for (size_t i = 0; i < _depthEntries.size(); ++i) {
+				if (_depthEntries[i].Key() != _lastDepthOrder[i]) {
+					bOrderChanged = true;
+					break;
+				}
+			}
+		}
+
+		if (!bOrderChanged) {
+			return;
+		}
+
+		_lastDepthOrder.clear();
+		_lastDepthOrder.reserve(_depthEntries.size());
+
+		RE::GFxValue depthArray;
+		_view->CreateArray(&depthArray);
+
+		for (auto& entry : _depthEntries) {
+			_lastDepthOrder.push_back(entry.Key());
+
+			RE::GFxValue data;
+			_view->CreateObject(&data);
+
+			RE::GFxValue id;
+			id.SetNumber(entry.widgetID);
+			RE::GFxValue zIndex;
+			zIndex.SetNumber(entry.depth);
+			RE::GFxValue widgetType;
+			widgetType.SetNumber(entry.widgetType);
+
+			data.SetMember("id", id);
+			data.SetMember("zIndex", zIndex);
+			data.SetMember("widgetType", widgetType);
+
+			depthArray.PushBack(data);
+		}
+
+		_view->Invoke("_root.TrueHUD.SortDepths", nullptr, &depthArray, 1);
 	}
 
 	void TrueHUDMenu::UpdateDebugDraw(float a_deltaTime)

@@ -237,7 +237,7 @@ HUDHandler::EventResult HUDHandler::ProcessEvent(const RE::MenuOpenCloseEvent* a
 
 	// Hide the widgets when a menu is open
 	if (const auto controlMap = RE::ControlMap::GetSingleton()) {
-		const auto& priorityStack = controlMap->GetRuntimeData().contextPriorityStack;
+		const auto& priorityStack = controlMap->contextPriorityStack;
 		if (priorityStack.empty()) {
 			HUDHandler::GetSingleton()->SetMenuVisibilityMode(MenuVisibilityMode::kHidden);
 		} else if (priorityStack.back() == ContextID::kGameplay ||
@@ -518,6 +518,7 @@ void HUDHandler::AddStackingDamageWorldTextWidget(RE::ObjectRefHandle a_refHandl
 		return;
 	}
 
+	Locker locker(_lock);
 	auto it = _stackingDamage.find(a_refHandle);
 	if (it != _stackingDamage.end()) {
 		it->second.damage += a_damage;
@@ -725,14 +726,18 @@ bool HUDHandler::CheckActorForBoss(RE::ObjectRefHandle a_refHandle)
 		if (Settings::bossRaces.contains(actor->GetRace())) {
 			return true;
 		}
-
+		// Check Keywords
+		for (auto kw : Settings::bossKeywords) {
+			if (actor->HasKeyword(kw))
+			return true;
+		}
 		// Check NPC
 		if (Settings::bossNPCs.contains(actorBase) || (originalBase && Settings::bossNPCs.contains(originalBase))) {
 			return true;
 		}
 
 		// Check current loc refs
-		if (auto currentLocation = playerCharacter->GetPlayerRuntimeData().currentLocation) {
+		if (auto currentLocation = playerCharacter->GetCurrentLocation()) {
 			for (auto& ref : currentLocation->specialRefs) {
 				if (ref.type && Settings::bossLocRefTypes.contains(ref.type) && ref.refData.refID == actor->formID) {
 					return true;
@@ -768,21 +773,37 @@ void HUDHandler::Initialize()
 
 void HUDHandler::Process(TrueHUDMenu& a_menu, float a_deltaTime)
 {
-	while (!_taskQueue.empty()) {
-		auto& task = _taskQueue.front();
-		task(a_menu);
-		_taskQueue.pop();
+	// Process runs on the UI job thread while AddHUDTask/AddStackingDamage push from the main thread:
+	// take everything under the lock, run it outside
+	std::queue<HUDTask> tasks;
+	std::vector<std::pair<RE::ObjectRefHandle, float>> expiredDamage;
+	{
+		Locker locker(_lock);
+		tasks.swap(_taskQueue);
+
+		for (auto it = _stackingDamage.begin(); it != _stackingDamage.end();) {
+			DamageStack& damageStack = it->second;
+			damageStack.timeElapsed += a_deltaTime;
+			if (damageStack.timeElapsed > _stackingPeriodDuration) {
+				expiredDamage.emplace_back(it->first, damageStack.damage);
+				it = _stackingDamage.erase(it);
+			} else {
+				++it;
+			}
+		}
 	}
 
-	for (auto it = _stackingDamage.begin(), next_it = it; it != _stackingDamage.end(); it = next_it) {
-		++next_it;
-		DamageStack& damageStack = it->second;
-		damageStack.timeElapsed += a_deltaTime;
-		if (damageStack.timeElapsed > _stackingPeriodDuration) {
-			if (auto actor = it->first.get().get()) {
-				HUDHandler::GetSingleton()->AddFloatingWorldTextWidget(std::to_string(static_cast<int32_t>(ceil(damageStack.damage))), 0xFFFFFF, 2.f, false, actor->GetLookingAtLocation());
-			}
-			_stackingDamage.erase(it);
+	while (!tasks.empty()) {
+		auto& task = tasks.front();
+		if (task) {
+			task(a_menu);
+		}
+		tasks.pop();
+	}
+
+	for (auto& [refHandle, damage] : expiredDamage) {
+		if (auto actor = refHandle.get().get()) {
+			AddFloatingWorldTextWidget(std::to_string(static_cast<int32_t>(ceil(damage))), 0xFFFFFF, 2.f, false, actor->GetLookingAtLocation());
 		}
 	}
 }

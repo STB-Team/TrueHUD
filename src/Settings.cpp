@@ -22,7 +22,8 @@ void Settings::Initialize()
 		kywd_noSoulTrap = dataHandler->LookupForm<RE::BGSKeyword>(0x103AD2, "Skyrim.esm");
 		kywd_Dragon = dataHandler->LookupForm<RE::BGSKeyword>(0x35D59, "Skyrim.esm");
 		
-		glob_survivalModeEnabled = dataHandler->LookupForm<RE::TESGlobal>(0x314A, "Update.esm");
+		glob_survivalModeEnabled = dataHandler->LookupForm<RE::TESGlobal>(0x018E30, "STB.esp");
+		ManaLock = dataHandler->LookupForm<RE::TESGlobal>(0x0E9BB1, "STB.esp");
 		glob_survivalHealthPenaltyPercent = dataHandler->LookupForm<RE::TESGlobal>(0x2EDE, "Update.esm");
 		glob_survivalMagickaPenaltyPercent = dataHandler->LookupForm<RE::TESGlobal>(0x2EE0, "Update.esm");
 		glob_survivalStaminaPenaltyPercent = dataHandler->LookupForm<RE::TESGlobal>(0x2EDF, "Update.esm");
@@ -70,6 +71,8 @@ void Settings::ReadSettings()
 
 		CSimpleIniA::TNamesDepend npcs;
 		ini.GetAllValues("BossRecognition", "NPC", npcs);
+		CSimpleIniA::TNamesDepend keywords;
+		ini.GetAllValues("BossRecognition", "Keyword", keywords);
 		CSimpleIniA::TNamesDepend removedNpcs;
 		ini.GetAllValues("BossRecognition", "RemoveNPC", removedNpcs);
 
@@ -77,7 +80,18 @@ void Settings::ReadSettings()
 		ini.GetAllValues("BossRecognition", "NPCBlacklist", blacklistedNPCs);
 		CSimpleIniA::TNamesDepend removedBlacklistedNPCs;
 		ini.GetAllValues("BossRecognition", "RemoveNPCBlacklist", removedBlacklistedNPCs);
-
+		for (const auto& entry : keywords) {
+			std::string str = entry.pItem;
+			auto split = str.find(':');
+			auto modName = str.substr(0, split);
+			auto formIDstr = str.substr(split + 1, str.find(' ', split + 1) - (split + 1));
+			RE::FormID formID;
+			formID = std::stoi(formIDstr.data(), 0, 16);
+			auto keyword = dataHandler->LookupForm<RE::BGSKeyword>(formID, modName);
+			if (keyword) {
+				bossKeywords.emplace(keyword);
+			}
+		}
 		for (const auto& entry : races) {
 			std::string str = entry.pItem;
 			auto split = str.find(':');
@@ -237,6 +251,7 @@ void Settings::ReadSettings()
 		ReadBoolSetting(mcm, "General", "bEnableRecentLoot", bEnableRecentLoot);
 		ReadBoolSetting(mcm, "General", "bEnableFloatingText", bEnableFloatingText);
 		ReadBoolSetting(mcm, "General", "bHideVanillaTargetBar", bHideVanillaTargetBar);
+		ReadFloatSetting(mcm, "General", "fWidgetSlowUpdateInterval", fWidgetSlowUpdateInterval);
 
 		// Info Bar Widget
 		ReadUInt32Setting(mcm, "ActorInfoBars", "uInfoBarDirection", (uint32_t&)uInfoBarDirection);
@@ -258,6 +273,7 @@ void Settings::ReadSettings()
 		ReadUInt32Setting(mcm, "ActorInfoBars", "uInfoBarSpecialModeTeammates", (uint32_t&)uInfoBarSpecialModeTeammates);
 		ReadUInt32Setting(mcm, "ActorInfoBars", "uInfoBarSpecialModeOthers", (uint32_t&)uInfoBarSpecialModeOthers);
 		ReadBoolSetting(mcm, "ActorInfoBars", "bInfoBarScaleWithDistance", bInfoBarScaleWithDistance);
+		ReadFloatSetting(mcm, "ActorInfoBars", "fInfoBarScaleQuantization", fInfoBarScaleQuantization);
 		ReadUInt32Setting(mcm, "ActorInfoBars", "uInfoBarAnchor", (uint32_t&)uInfoBarAnchor);
 		ReadFloatSetting(mcm, "ActorInfoBars", "fInfoBarOffsetZ", fInfoBarOffsetZ);
 		ReadBoolSetting(mcm, "ActorInfoBars", "bInfoBarLevelColorOutline", bInfoBarLevelColorOutline);

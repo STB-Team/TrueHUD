@@ -7,17 +7,21 @@
 
 namespace Scaleform
 {
-	void ActorInfoBar::Update([[maybe_unused]] float a_deltaTime)
+	void ActorInfoBar::Update(float a_deltaTime)
 	{
-		RE::GFxValue result;
-		_object.Invoke("isReadyToRemove", &result);
-		if (result.GetBool()) {
-			_widgetState = WidgetState::kRemoved;
-			return;
+		// bReadyToRemove can only be set while the widget is being removed or the target
+		// has been killed, so skip the round trip into the VM in every other state.
+		if (_widgetState >= WidgetState::kDelayedRemoval) {
+			RE::GFxValue result;
+			_object.Invoke("isReadyToRemove", &result);
+			if (result.GetBool()) {
+				_widgetState = WidgetState::kRemoved;
+				return;
+			}
 		}
 
 		UpdatePosition();
-		UpdateInfo();
+		UpdateInfo(a_deltaTime);
 	}
 
 	void ActorInfoBar::UpdatePosition()
@@ -72,6 +76,12 @@ namespace Scaleform
 		if (Settings::bInfoBarScaleWithDistance) {
 			float scaleMult = fmin(fmax(linearizedDepth, 500.f), 2000.f);
 			float remapped = (((scaleMult - 500.f) * (50.f - 100.f)) / (2000.f - 500.f)) + 100.f;
+			// Snap to discrete steps. Without this the scale changes by a fraction of a
+			// percent every frame while the player moves, which invalidates Scaleform's
+			// tessellation and filter caches for the whole widget on every single frame.
+			if (Settings::fInfoBarScaleQuantization > 0.f) {
+				remapped = std::round(remapped / Settings::fInfoBarScaleQuantization) * Settings::fInfoBarScaleQuantization;
+			}
 			scale = remapped;
 		} else {
 			scale = 100.f;
@@ -81,7 +91,10 @@ namespace Scaleform
 
 		RE::GFxValue::DisplayInfo displayInfo;
 		displayInfo.SetPosition(screenPos.x, screenPos.y);
-		displayInfo.SetScale(scale, scale);
+		if (scale != _lastAppliedScale) {
+			displayInfo.SetScale(scale, scale);
+			_lastAppliedScale = scale;
+		}
 		_object.SetDisplayInfo(displayInfo);
 	}
 

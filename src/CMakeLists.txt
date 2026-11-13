@@ -45,6 +45,8 @@ target_compile_definitions(
 	"${PROJECT_NAME}"
 	PRIVATE
 		NOMINMAX
+		UNICODE
+		_UNICODE
 )
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
@@ -77,10 +79,11 @@ target_include_directories(
 	PRIVATE
 		"${CMAKE_CURRENT_BINARY_DIR}/src"
 		"${SOURCE_DIR}"
+		"${ROOT_DIR}/include"
 )
 
 set(SKSE_SUPPORT_XBYAK ON)
-add_subdirectory("$ENV{CommonLibSSEPath}" CommonLibSSE EXCLUDE_FROM_ALL)
+add_subdirectory("${ROOT_DIR}/extern/CommonLibSSE-NG" CommonLibSSE EXCLUDE_FROM_ALL)
 
 find_package(xbyak REQUIRED CONFIG)
 

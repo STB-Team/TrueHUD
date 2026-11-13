@@ -5,16 +5,20 @@
 
 namespace Scaleform
 {
-	void BossInfoBar::Update([[maybe_unused]] float a_deltaTime)
+	void BossInfoBar::Update(float a_deltaTime)
 	{
-		RE::GFxValue result;
-		_object.Invoke("isReadyToRemove", &result);
-		if (result.GetBool()) {
-			_widgetState = WidgetState::kRemoved;
-			return;
+		// bReadyToRemove can only be set while the widget is being removed or the target
+		// has been killed, so skip the round trip into the VM in every other state.
+		if (_widgetState >= WidgetState::kDelayedRemoval) {
+			RE::GFxValue result;
+			_object.Invoke("isReadyToRemove", &result);
+			if (result.GetBool()) {
+				_widgetState = WidgetState::kRemoved;
+				return;
+			}
 		}
 
-		UpdateInfo();
+		UpdateInfo(a_deltaTime);
 	}
 
 	void BossInfoBar::Initialize()

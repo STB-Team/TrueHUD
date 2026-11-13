@@ -99,6 +99,10 @@ struct Settings
 	static inline bool bEnableRecentLoot = true;
 	static inline bool bEnableFloatingText = false;
 	static inline bool bHideVanillaTargetBar = false;
+	// How often, in seconds, the expensive per actor queries behind a widget are refreshed
+	// (line of sight, active effect walks, boss check, name, level, soul type). These
+	// either can't change or can't be seen changing between frames.
+	static inline float fWidgetSlowUpdateInterval = 0.1f;
 
 	// Info Bar Widget
 	static inline BarDirection uInfoBarDirection = BarDirection::kCenter;
@@ -120,6 +124,9 @@ struct Settings
 	static inline InfoBarsResourcesDisplayMode uInfoBarSpecialModeTeammates = InfoBarsResourcesDisplayMode::kNever;
 	static inline InfoBarsResourcesDisplayMode uInfoBarSpecialModeOthers = InfoBarsResourcesDisplayMode::kNever;
 	static inline bool bInfoBarScaleWithDistance = true;
+	// Step, in percent, the distance based scale is snapped to. 0 disables the snapping
+	// and restores the old continuously changing scale.
+	static inline float fInfoBarScaleQuantization = 2.5f;
 	static inline WidgetAnchor uInfoBarAnchor = WidgetAnchor::kHead;
 	static inline float fInfoBarOffsetZ = 30.f;
 	static inline bool bInfoBarLevelColorOutline = true;
@@ -294,6 +301,7 @@ struct Settings
 
 	// Non-MCM
 	static inline std::unordered_set<RE::TESRace*> bossRaces;
+	static inline std::unordered_set<RE::BGSKeyword*> bossKeywords;
 	static inline std::unordered_set<RE::BGSLocationRefType*> bossLocRefTypes;
 	static inline std::unordered_set<RE::TESActorBase*> bossNPCs;
 	static inline std::unordered_set<RE::TESActorBase*> bossNPCBlacklist;
@@ -301,6 +309,7 @@ struct Settings
 	static inline RE::BGSKeyword* kywd_noSoulTrap = nullptr;
 	static inline RE::BGSKeyword* kywd_Dragon = nullptr;
 	static inline RE::TESGlobal* glob_survivalModeEnabled = nullptr;
+	static inline RE::TESGlobal* ManaLock = nullptr;
 	static inline RE::TESGlobal* glob_survivalHealthPenaltyPercent = nullptr;
 	static inline RE::TESGlobal* glob_survivalMagickaPenaltyPercent = nullptr;
 	static inline RE::TESGlobal* glob_survivalStaminaPenaltyPercent = nullptr;

@@ -4,6 +4,7 @@
 #include <RE/Skyrim.h>
 #include <REL/Relocation.h>
 #include <SKSE/SKSE.h>
+#include <SKSE/Impl/Stubs.h>
 
 #include <SimpleIni.h>
 #include "ModAPI.h"
@@ -28,4 +29,4 @@ namespace util
 
 #define RELOCATION_OFFSET(SE, AE) REL::VariantOffset(SE, AE, 0).offset()
 
-#include "Plugin.h"
+

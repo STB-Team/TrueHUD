@@ -6,7 +6,7 @@
 
 namespace Scaleform
 {
-	void PlayerWidget::Update([[maybe_unused]] float a_deltaTime)
+	void PlayerWidget::Update(float a_deltaTime)
 	{
 		if (!_bInitialized) {
 			RE::GFxValue result;
@@ -17,7 +17,7 @@ namespace Scaleform
 			}
 		}
 
-		UpdateInfo();
+		UpdateInfo(a_deltaTime);
 
 		if (Settings::bPlayerWidgetHideVanillaBars && Settings::bPlayerWidgetForceHideVanillaBars) {
 			ToggleVanillaBars(false);
@@ -165,7 +165,53 @@ namespace Scaleform
 		
 		_object.SetDisplayInfo(displayInfo);
 	}
+	void PlayerWidget::RefreshRegenStrings()
+	{
+		float health = 0.f;
+		float magicka = 0.f;
+		float stamina = 0.f;
 
+		const auto player = RE::PlayerCharacter::GetSingleton();
+		const auto active_effects = player ? player->AsMagicTarget()->GetActiveEffectList() : nullptr;
+		if (active_effects) {
+			// One pass over the list for all three actor values instead of one pass each.
+			for (auto active_effect : *active_effects) {
+				const auto av = active_effect->effect->baseEffect->data.primaryAV;
+				if (av != RE::ActorValue::kHealth && av != RE::ActorValue::kMagicka && av != RE::ActorValue::kStamina) {
+					continue;
+				}
+
+				if (active_effect->flags.any(RE::ActiveEffect::Flag::kInactive)) {
+					continue;
+				}
+
+				const auto baseEffect = active_effect->effect->baseEffect;
+				if (!baseEffect->HasKeywordString("aaMZkw_RestoreStaminaRace") &&
+					!baseEffect->HasKeywordString("aaMZkw_RestoreHealthRace") &&
+					!baseEffect->HasKeywordString("aaMZkw_RestoreMagickaRace")) {
+					continue;
+				}
+
+				switch (av) {
+				case RE::ActorValue::kHealth:
+					health += active_effect->magnitude;
+					break;
+				case RE::ActorValue::kMagicka:
+					magicka += active_effect->magnitude;
+					break;
+				case RE::ActorValue::kStamina:
+					stamina += active_effect->magnitude;
+					break;
+				default:
+					break;
+				}
+			}
+		}
+
+		_healthRegenString = fmt::format("{:.{}f}"sv, health, 2);
+		_magickaRegenString = fmt::format("{:.{}f}"sv, magicka, 2);
+		_staminaRegenString = fmt::format("{:.{}f}"sv, stamina, 2);
+	}
 	void PlayerWidget::LoadConfig()
 	{
 		using ColorType = TRUEHUD_API::BarColorType;
@@ -240,7 +286,7 @@ namespace Scaleform
 		_object.Invoke("loadConfig", nullptr, args, 54);
 	}
 
-	void PlayerWidget::UpdateInfo()
+	void PlayerWidget::UpdateInfo(float a_deltaTime)
 	{
 		SetPercent(GetPercent());
 		UpdatePenaltyPercentages();
@@ -284,10 +330,15 @@ namespace Scaleform
 			stamina = actorValueOwner->GetActorValue(RE::ActorValue::kStamina);
 			bIsInMountMode = false;
 		}
-
 		bool bIsInCombat = playerCharacter->IsInCombat();
 
-		RE::GFxValue args[12];
+		_regenTimer -= a_deltaTime;
+		if (_regenTimer < 0.f) {
+			RefreshRegenStrings();
+			_regenTimer = Settings::fWidgetSlowUpdateInterval;
+		}
+
+		RE::GFxValue args[16];
 		args[0].SetNumber(ceil(maxHealth));
 		args[1].SetNumber(ceil(health));
 		args[2].SetNumber(Utils::GetPct(health, maxHealth));
@@ -300,8 +351,11 @@ namespace Scaleform
 		args[9].SetBoolean(bIsInCombat);
 		args[10].SetBoolean(bIsInMountMode);
 		args[11].SetBoolean(false);
-
-		_object.Invoke("updateData", nullptr, args, 12);
+		args[12].SetNumber(Settings::ManaLock->value);
+		args[13].SetString(_healthRegenString);
+		args[14].SetString(_staminaRegenString);
+		args[15].SetString(_magickaRegenString);
+		_object.Invoke("updateData", nullptr, args, 16);
 
 		auto hudHandler = HUDHandler::GetSingleton();
 		if (hudHandler && hudHandler->bSpecialFunctionsProvided && hudHandler->bDisplaySpecialForPlayer) {

@@ -74,9 +74,9 @@ namespace Messaging
 		virtual void DrawCapsule(const RE::NiPoint3& a_origin, float a_halfHeight, float a_radius, const RE::NiQuaternion& a_rotation, float a_duration, uint32_t a_color, float a_thickness) noexcept override;
 
 		virtual bool HasInfoBar(RE::ActorHandle a_actorHandle, bool a_bFloatingOnly = false) const noexcept override;
-
 		// InterfaceVersion4
 		virtual void DrawCapsule(const RE::NiPoint3& a_vertexA, const RE::NiPoint3& a_vertexB, float a_radius, float a_duration, uint32_t a_color, float a_thickness) noexcept override;
+		virtual bool CheckActorForBoss(RE::ActorHandle a_actorHandle) noexcept override;
 
 		// Does a mod have control over the current target?
 		bool IsTargetControlTaken() const noexcept;

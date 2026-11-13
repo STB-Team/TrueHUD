@@ -5,7 +5,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": {
           "type": "STRING",
-          "value": "Debug"
+          "value": "Release"
         }
       },
       "errors": {
@@ -48,16 +48,16 @@
         "value": "x64"
       },
       "cacheVariables": {
-        "CMAKE_CXX_FLAGS": "/EHsc /MP /W4 /WX"
+        "CMAKE_CXX_FLAGS": "/EHsc /MP /W4"
       },
-      "generator": "Visual Studio 17 2022",
+      "generator": "Visual Studio 18 2026",
       "inherits": [
         "cmake-dev",
         "vcpkg",
         "windows"
       ],
-      "name": "vs2022-windows",
-      "toolset": "v143"
+      "name": "default",
+      "toolset": "v145"
     }
   ],
   "version": 3
