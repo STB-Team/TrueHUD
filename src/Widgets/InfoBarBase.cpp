@@ -4,11 +4,15 @@
 #include "Utils.h"
 #include "HUDHandler.h"
 #include "NPCNameProvider.h"
+#include "Perf.h"
 
 namespace Scaleform
 {
 	void InfoBarBase::Initialize()
 	{
+		_flashInitialized = false;
+		_dataCache.Reset();
+		_specialCache.Reset();
 		LoadConfig();
 		SetWidgetState(WidgetStateMode::kShow);
 	}
@@ -143,6 +147,7 @@ namespace Scaleform
 
 	void InfoBarBase::RefreshCachedInfo(RE::Actor* a_actor, RE::PlayerCharacter* a_playerCharacter, bool a_bIsTarget)
 	{
+		Perf::Scope scope(Perf::Phase::CachedInfo);
 		LookupForms();
 
 		_cachedIsHostile = a_actor->IsHostileToActor(a_playerCharacter);
@@ -164,6 +169,7 @@ namespace Scaleform
 		if (a_bIsTarget) {
 			_cachedHasLineOfSight = true;
 		} else {
+			Perf::Scope losScope(Perf::Phase::LineOfSight);
 			bool r8 = false;
 			_cachedHasLineOfSight = a_playerCharacter->HasLineOfSight(a_actor, r8);
 		}
@@ -180,18 +186,29 @@ namespace Scaleform
 
 	void InfoBarBase::UpdateInfo(float a_deltaTime)
 	{
+		Perf::Scope scope(Perf::Phase::Info);
 		auto playerCharacter = RE::PlayerCharacter::GetSingleton();
 		auto playerLevel = playerCharacter->GetLevel();
 
-		if (!_refHandle || !_refHandle.get()) {
+		const auto reference = _refHandle.get();
+		if (!reference) {
 			_widgetState = WidgetState::kRemoved;
 			return;
 		}
 
-		auto actor = _refHandle.get()->As<RE::Actor>();
+		auto actor = reference->As<RE::Actor>();
 		if (!actor) {
 			_widgetState = WidgetState::kRemoved;
 			return;
+		}
+
+		const bool canCache = _flashInitialized;
+		if (!_flashInitialized) {
+			Perf::Scope readinessScope(Perf::Phase::Invoke);
+			RE::GFxValue initialized;
+			if (_object.GetMember("bInitialized", &initialized) && initialized.IsBool()) {
+				_flashInitialized = initialized.GetBool();
+			}
 		}
 
 		auto hudMenu = HUDHandler::GetTrueHUDMenu();
@@ -328,28 +345,32 @@ namespace Scaleform
 		float temporaryStamina = actor->GetActorValueModifier(RE::ACTOR_VALUE_MODIFIER::kTemporary, RE::ActorValue::kStamina);
 		float maxStamina = permanentStamina + temporaryStamina;
 		float stamina = actorValueOwner->GetActorValue(RE::ActorValue::kStamina);
-		RE::GFxValue args[19];
-		args[0].SetNumber(targetType);
-		args[1].SetNumber(_widgetState);
-		args[2].SetNumber(_depth);
-		args[3].SetNumber(targetState);
-		args[4].SetString(targetName);
-		args[5].SetNumber(targetLevel);
-		args[6].SetNumber(levelColor);
-		args[7].SetNumber(outlineColor);
-		args[8].SetNumber(soulType);
-		args[9].SetNumber(ceil(maxHealth));
-		args[10].SetNumber(ceil(health));
-		args[11].SetNumber(Utils::GetPct(health, maxHealth));
-		args[12].SetNumber(ceil(maxMagicka));
-		args[13].SetNumber(ceil(magicka));
-		args[14].SetNumber(Utils::GetPct(magicka, maxMagicka));
-		args[15].SetNumber(ceil(maxStamina));
-		args[16].SetNumber(ceil(stamina));
-		args[17].SetNumber(Utils::GetPct(stamina, maxStamina));
-		args[18].SetString(_cachedRegenString);
-
-		_object.Invoke("updateData", nullptr, args, 19);
+		const UpdateCache<17, 2>::Numbers data{
+			static_cast<double>(targetType), static_cast<double>(_widgetState), _depth,
+			static_cast<double>(targetState), static_cast<double>(targetLevel),
+			static_cast<double>(levelColor), static_cast<double>(outlineColor), static_cast<double>(soulType),
+			ceil(maxHealth), ceil(health), Utils::GetPct(health, maxHealth),
+			ceil(maxMagicka), ceil(magicka), Utils::GetPct(magicka, maxMagicka),
+			ceil(maxStamina), ceil(stamina), Utils::GetPct(stamina, maxStamina)
+		};
+		const UpdateCache<17, 2>::Strings strings{ targetName, _cachedRegenString };
+		const bool sendData = !Perf::UseOptimizations() || !canCache || !_dataCache.Matches(data, strings);
+		if (sendData) {
+			RE::GFxValue args[19];
+			for (std::size_t i = 0; i < 4; ++i) {
+				args[i].SetNumber(data[i]);
+			}
+			args[4].SetString(targetName);
+			for (std::size_t i = 4; i < data.size(); ++i) {
+				args[i + 1].SetNumber(data[i]);
+			}
+			args[18].SetString(_cachedRegenString);
+			if (Perf::Invoke(_object, "updateData", nullptr, args, 19) && canCache) {
+				_dataCache.Store(data, strings);
+			}
+		}
+		Perf::Count(sendData ? Perf::Counter::DataSent : Perf::Counter::DataSkipped);
+		Perf::Bar(_widgetID, _widgetState, targetType, health, maxHealth, sendData);
 
 		if (_cachedIsBoss) {
 			float maxSpecial = 0;
@@ -361,11 +382,18 @@ namespace Scaleform
 					currentSpecial = fmax(ef->duration - ef->elapsedSeconds, 0.f);
 				}
 
-			RE::GFxValue specialArgs[3];
-			specialArgs[0].SetNumber(ceil(maxSpecial));
-			specialArgs[1].SetNumber(ceil(currentSpecial));
-			specialArgs[2].SetNumber(Utils::GetPct(currentSpecial, maxSpecial));
-			_object.Invoke("updateSpecial", nullptr, specialArgs, 3);
+			const UpdateCache<3>::Numbers special{ ceil(maxSpecial), ceil(currentSpecial), Utils::GetPct(currentSpecial, maxSpecial) };
+			const bool sendSpecial = !Perf::UseOptimizations() || !canCache || !_specialCache.Matches(special);
+			if (sendSpecial) {
+				RE::GFxValue specialArgs[3];
+				for (std::size_t i = 0; i < special.size(); ++i) {
+					specialArgs[i].SetNumber(special[i]);
+				}
+				if (Perf::Invoke(_object, "updateSpecial", nullptr, specialArgs, 3) && canCache) {
+					_specialCache.Store(special);
+				}
+			}
+			Perf::Count(sendSpecial ? Perf::Counter::SpecialSent : Perf::Counter::SpecialSkipped);
 		}
 	//	const RE::GFxValue var5{ ceil(health) };
 	//	RE::GFxValue var;

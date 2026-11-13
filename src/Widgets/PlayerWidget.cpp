@@ -3,14 +3,17 @@
 #include "Settings.h"
 #include "Utils.h"
 #include "HUDHandler.h"
+#include "Perf.h"
 
 namespace Scaleform
 {
 	void PlayerWidget::Update(float a_deltaTime)
 	{
+		Perf::Scope scope(Perf::Phase::Player);
+		_bCacheReady = _bInitialized;
 		if (!_bInitialized) {
 			RE::GFxValue result;
-			_object.Invoke("isInitialized", &result);
+			Perf::Invoke(_object, "isInitialized", &result);
 			if (result.GetBool()) {
 				_bInitialized = true;
 				UpdatePenalty();
@@ -167,6 +170,7 @@ namespace Scaleform
 	}
 	void PlayerWidget::RefreshRegenStrings()
 	{
+		Perf::Scope scope(Perf::Phase::PlayerRegen);
 		float health = 0.f;
 		float magicka = 0.f;
 		float stamina = 0.f;
@@ -214,6 +218,10 @@ namespace Scaleform
 	}
 	void PlayerWidget::LoadConfig()
 	{
+		_bInitialized = false;
+		_bCacheReady = false;
+		_specialCache.Reset();
+		_penaltyCache.Reset();
 		using ColorType = TRUEHUD_API::BarColorType;
 
 		auto hudHandler = HUDHandler::GetSingleton();
@@ -355,31 +363,47 @@ namespace Scaleform
 		args[13].SetString(_healthRegenString);
 		args[14].SetString(_staminaRegenString);
 		args[15].SetString(_magickaRegenString);
-		_object.Invoke("updateData", nullptr, args, 16);
+		// This call also refreshes combat visibility timers and animated text placement.
+		// Equal resource values alone do not make it safe to omit.
+		Perf::Invoke(_object, "updateData", nullptr, args, 16);
+		Perf::Count(Perf::Counter::DataSent);
 
 		auto hudHandler = HUDHandler::GetSingleton();
 		if (hudHandler && hudHandler->bSpecialFunctionsProvided && hudHandler->bDisplaySpecialForPlayer) {
-			RE::GFxValue specialArgs[3];
 			auto maxSpecial = fmax(hudHandler->GetMaxSpecial(playerCharacter), 0.f);
 			auto currentSpecial = fmax(hudHandler->GetCurrentSpecial(playerCharacter), 0.f);
-
-			specialArgs[0].SetNumber(ceil(maxSpecial));
-			specialArgs[1].SetNumber(ceil(currentSpecial));
-			specialArgs[2].SetNumber(Utils::GetPct(currentSpecial, maxSpecial));
-			_object.Invoke("updateSpecial", nullptr, specialArgs, 3);
+			const UpdateCache<3>::Numbers special{ ceil(maxSpecial), ceil(currentSpecial), Utils::GetPct(currentSpecial, maxSpecial) };
+			const bool sendSpecial = !Perf::UseOptimizations() || !_bCacheReady || !_specialCache.Matches(special);
+			if (sendSpecial) {
+				RE::GFxValue specialArgs[3];
+				for (std::size_t i = 0; i < special.size(); ++i) {
+					specialArgs[i].SetNumber(special[i]);
+				}
+				if (Perf::Invoke(_object, "updateSpecial", nullptr, specialArgs, 3) && _bCacheReady) {
+					_specialCache.Store(special);
+				}
+			}
+			Perf::Count(sendSpecial ? Perf::Counter::SpecialSent : Perf::Counter::SpecialSkipped);
 		}
 	}
 
 	void PlayerWidget::UpdatePenalty()
 	{
+		const UpdateCache<3>::Numbers penalty{ _healthPenaltyPct, _magickaPenaltyPct, _staminaPenaltyPct };
+		if (Perf::UseOptimizations() && _bCacheReady && _penaltyCache.Matches(penalty)) {
+			Perf::Count(Perf::Counter::PenaltySkipped);
+			return;
+		}
+
 		RE::GFxValue penaltyArgs[4];
-
-		penaltyArgs[0].SetNumber(_healthPenaltyPct);
-		penaltyArgs[1].SetNumber(_magickaPenaltyPct);
-		penaltyArgs[2].SetNumber(_staminaPenaltyPct);
+		for (std::size_t i = 0; i < penalty.size(); ++i) {
+			penaltyArgs[i].SetNumber(penalty[i]);
+		}
 		penaltyArgs[3].SetBoolean(false);
-
-		_object.Invoke("updatePenalty", nullptr, penaltyArgs, 4);
+		if (Perf::Invoke(_object, "updatePenalty", nullptr, penaltyArgs, 4) && _bCacheReady) {
+			_penaltyCache.Store(penalty);
+		}
+		Perf::Count(Perf::Counter::PenaltySent);
 	}
 
 	void PlayerWidget::ToggleVanillaBars(bool a_bEnable)

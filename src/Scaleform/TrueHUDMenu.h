@@ -10,6 +10,7 @@
 #include "Offsets.h"
 #include <chrono>
 #include <unordered_set>
+#include "Perf.h"
 
 namespace std
 {
@@ -264,11 +265,18 @@ namespace Scaleform
 			_movieLastTime = currentTime;
 			float deltaTime = static_cast<float>(dt.count());
 
-			ProcessDelegate(deltaTime);
-			Update(deltaTime);
-			//Super::AdvanceMovie(a_interval, a_currentTime); ??
+			Perf::Frame frame(deltaTime);
+			{
+				Perf::Scope scope(Perf::Phase::Delegate);
+				ProcessDelegate(deltaTime);
+			}
+			{
+				Perf::Scope scope(Perf::Phase::Native);
+				Update(deltaTime);
+			}
 
 			if (uiMovie) {
+				Perf::Scope scope(Perf::Phase::Flash);
 				uiMovie->Advance(deltaTime);
 			}
 		}
@@ -378,6 +386,7 @@ namespace Scaleform
 		std::unordered_map<RE::ObjectRefHandle, std::unordered_map<BarType, BarColorOverride>> _colorOverrides;
 		std::unordered_set<RE::ObjectRefHandle> _pendingColorChanges;
 
+		bool _bDebugDrawn = false;
 		std::vector<std::unique_ptr<DebugLine>> _linesToDraw;
 		std::vector<std::unique_ptr<DebugPoint>> _pointsToDraw;
 

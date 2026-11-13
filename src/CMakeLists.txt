@@ -47,6 +47,7 @@ target_compile_definitions(
 		NOMINMAX
 		UNICODE
 		_UNICODE
+		TRUEHUD_PROFILE=$<BOOL:${TRUEHUD_PROFILE}>
 )
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")

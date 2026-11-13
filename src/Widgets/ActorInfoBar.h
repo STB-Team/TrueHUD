@@ -22,5 +22,6 @@ namespace Scaleform
 		// geometry and rendered filters per scale, so a scale that changes by a hair
 		// every frame throws all of that away every frame.
 		float _lastAppliedScale = -1.f;
+		UpdateCache<3> _positionCache;
 	};
 }

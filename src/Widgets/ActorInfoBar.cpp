@@ -4,11 +4,13 @@
 #include "Utils.h"
 #include "HUDHandler.h"
 #include "Scaleform/Scaleform.h"
+#include "Perf.h"
 
 namespace Scaleform
 {
 	void ActorInfoBar::Update(float a_deltaTime)
 	{
+		Perf::Scope scope(Perf::Phase::Actor);
 		// bReadyToRemove can only be set while the widget is being removed or the target
 		// has been killed, so skip the round trip into the VM in every other state.
 		if (_widgetState >= WidgetState::kDelayedRemoval) {
@@ -26,6 +28,7 @@ namespace Scaleform
 
 	void ActorInfoBar::UpdatePosition()
 	{
+		Perf::Scope scope(Perf::Phase::Position);
 		if (!_refHandle) {
 			_widgetState = WidgetState::kRemoved;
 			return;
@@ -47,7 +50,12 @@ namespace Scaleform
 		RE::GRectF rect = _view->GetVisibleFrameRect();
 
 		RE::NiPoint3 targetPos;
-		Utils::GetTargetPos(_refHandle, targetPos, Settings::uInfoBarAnchor == WidgetAnchor::kBody);
+		if (!Utils::GetTargetPos(_refHandle, targetPos, Settings::uInfoBarAnchor == WidgetAnchor::kBody)) {
+			_bIsOffscreen = true;
+			_positionCache.Reset();
+			Perf::Count(Perf::Counter::PositionUnavailable);
+			return;
+		}
 		targetPos.z += Settings::fInfoBarOffsetZ;
 		RE::NiPoint2 screenPos;
 
@@ -89,17 +97,30 @@ namespace Scaleform
 
 		scale *= Settings::fInfoBarScale;
 
+		const UpdateCache<3>::Numbers position{ screenPos.x, screenPos.y, scale };
+		if (Perf::UseOptimizations() && _positionCache.Matches(position)) {
+			Perf::Count(Perf::Counter::PositionSkipped);
+			return;
+		}
+
 		RE::GFxValue::DisplayInfo displayInfo;
 		displayInfo.SetPosition(screenPos.x, screenPos.y);
 		if (scale != _lastAppliedScale) {
 			displayInfo.SetScale(scale, scale);
-			_lastAppliedScale = scale;
+			// Commit only after the movie accepted the display update.
 		}
-		_object.SetDisplayInfo(displayInfo);
+		if (_object.SetDisplayInfo(displayInfo)) {
+			_lastAppliedScale = scale;
+			_positionCache.Store(position);
+		} else {
+			Perf::Count(Perf::Counter::InvokeFailures);
+		}
+		Perf::Count(Perf::Counter::PositionSent);
 	}
 
 	void ActorInfoBar::LoadConfig()
 	{
+		_positionCache.Reset();
 		using ColorType = TRUEHUD_API::BarColorType;
 
 		auto hudHandler = HUDHandler::GetSingleton();

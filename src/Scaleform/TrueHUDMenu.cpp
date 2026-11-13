@@ -1321,6 +1321,8 @@ namespace Scaleform
 	void TrueHUDMenu::Update(float a_deltaTime)
 	{
 		using WidgetState = WidgetBase::WidgetState;
+		Perf::Count(Perf::Counter::Actors, static_cast<std::uint32_t>(_actorInfoBarMap.size()));
+		Perf::Count(Perf::Counter::Bosses, static_cast<std::uint32_t>(_bossInfoBarMap.size()));
 
 		if (_menuVisibilityMode == MenuVisibilityMode::kHidden) {
 			if (RE::UI::GetSingleton()->GameIsPaused()) {
@@ -1373,6 +1375,9 @@ namespace Scaleform
 		
 			auto& entry = *widget_it;
 			auto& widget = entry.second;
+			if (widget->_widgetState == WidgetState::kHidden) {
+				Perf::Count(Perf::Counter::Hidden);
+			}
 				
 			widget->ProcessDelegates();
 			widget->Update(a_deltaTime);
@@ -1461,6 +1466,7 @@ namespace Scaleform
 					auto& entry = *widget_it;
 					auto& widget = entry.second;
 
+					Perf::Count(Perf::Counter::Custom);
 					widget->ProcessDelegates();
 					widget->Update(a_deltaTime);
 
@@ -1681,6 +1687,7 @@ namespace Scaleform
 
 	void TrueHUDMenu::SortDepths()
 	{
+		Perf::Scope scope(Perf::Phase::Sort);
 		// The movie stacks the widgets in the order they arrive here, so nothing needs to
 		// be pushed while that order stays the same - and it stays the same most frames,
 		// even though the raw depth values change constantly as the player moves.
@@ -1729,16 +1736,25 @@ namespace Scaleform
 		}
 
 		_view->Invoke("_root.TrueHUD.SortDepths", nullptr, &depthArray, 1);
+		Perf::Count(Perf::Counter::SortSent);
 	}
 
 	void TrueHUDMenu::UpdateDebugDraw(float a_deltaTime)
 	{
+		Perf::Scope scope(Perf::Phase::DebugDraw);
 		if (!_view) {
 			return;
 		}
 
+		const bool hasPrimitives = !_linesToDraw.empty() || !_pointsToDraw.empty();
+		if (Perf::UseOptimizations() && !hasPrimitives && !_bDebugDrawn) {
+			Perf::Count(Perf::Counter::ClearSkipped);
+			return;
+		}
 		CacheData();
 		ClearLines();
+		_bDebugDrawn = hasPrimitives;
+		Perf::Count(Perf::Counter::ClearSent);
 
 		for (int i = 0; i < _linesToDraw.size(); ++i) {
 			auto line = _linesToDraw[i].get();

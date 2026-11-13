@@ -2,11 +2,13 @@
 #include "Offsets.h"
 #include "Settings.h"
 #include "HUDHandler.h"
+#include "Perf.h"
 
 namespace Scaleform
 {
 	void BossInfoBar::Update(float a_deltaTime)
 	{
+		Perf::Scope scope(Perf::Phase::Boss);
 		// bReadyToRemove can only be set while the widget is being removed or the target
 		// has been killed, so skip the round trip into the VM in every other state.
 		if (_widgetState >= WidgetState::kDelayedRemoval) {

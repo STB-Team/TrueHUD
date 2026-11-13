@@ -1,5 +1,6 @@
 #pragma once
 #include "TrueHUDAPI.h"
+#include "Widgets/UpdateCache.h"
 
 namespace Scaleform
 {
@@ -80,5 +81,10 @@ namespace Scaleform
 		bool _cachedIsHostile = false;
 		bool _cachedIsTeammate = false;
 		bool _cachedHasLineOfSight = true;
+
+		// loadConfig initializes the movie on its next Advance, not during the call.
+		bool _flashInitialized = false;
+		UpdateCache<17, 2> _dataCache;
+		UpdateCache<3> _specialCache;
 	};
 }

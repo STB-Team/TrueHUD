@@ -1,5 +1,6 @@
 #pragma once
 #include "Widgets/ShoutIndicator.h"
+#include "Widgets/UpdateCache.h"
 
 namespace Scaleform
 {
@@ -41,6 +42,9 @@ namespace Scaleform
 		virtual void ToggleVanillaEnchantmentChargeMeters(bool a_bEnable);
 
 		bool _bInitialized = false;
+		bool _bCacheReady = false;
+		UpdateCache<3> _specialCache;
+		UpdateCache<3> _penaltyCache;
 		float _healthPenaltyPct = 0.f;
 		float _magickaPenaltyPct = 0.f;
 		float _staminaPenaltyPct = 0.f;
